@@ -13,16 +13,18 @@ def build_safe_validation_states(pack: object, profile: str = "basic") -> list[t
 
     Order:
     1. off
-    2. first resolvable non-off hvac/fan/temp state
-    3. (full profile) one additional resolvable state if available
+    2. one resolvable command per supported non-off HVAC mode
+    3. (full profile) one extra resolvable command per mode when possible
     """
     coverage = get_pack_coverage_report(pack)
     available_temps = list(coverage.get("available_temperature_points", []))
+    temps_by_mode = dict(coverage.get("available_temperatures_by_mode", {}))
     first_temp = available_temps[0] if available_temps else getattr(pack, "min_temperature", 24)
     supported_modes = [
         mode for mode in list(coverage.get("supported_hvac_modes", [])) if mode != "off"
     ]
     supported_fans = list(coverage.get("supported_fan_modes", []))
+    swing_by_mode = dict(coverage.get("swing_support_by_mode", {}))
 
     states: list[tuple[str, dict[str, Any]]] = [
         (
@@ -35,36 +37,45 @@ def build_safe_validation_states(pack: object, profile: str = "basic") -> list[t
         )
     ]
 
-    if not supported_modes:
-        return states
-
     engine = TableEngine(pack)
-    base_mode = supported_modes[0]
-    candidates: list[tuple[str, dict[str, Any]]] = []
-    fan_candidates = supported_fans if supported_fans else [None]
+    for mode in supported_modes:
+        mode_candidates: list[tuple[str, dict[str, Any]]] = []
+        mode_temps = list(temps_by_mode.get(mode, [])) or (available_temps if available_temps else [int(first_temp)])
+        fan_candidates = supported_fans if supported_fans else [None]
+        swing_cfg = swing_by_mode.get(mode, {})
+        use_vertical = bool(swing_cfg.get("vertical"))
+        use_horizontal = bool(swing_cfg.get("horizontal"))
+        swing_vertical_values = list(getattr(pack.capabilities, "swing_vertical_modes", []))
+        swing_horizontal_values = list(getattr(pack.capabilities, "swing_horizontal_modes", []))
 
-    for fan in fan_candidates:
-        temps_to_try = available_temps if available_temps else [int(first_temp)]
-        for temp in temps_to_try:
-            candidate_state: dict[str, Any] = {
-                "power": True,
-                "hvac_mode": base_mode,
-                "target_temperature": int(temp),
-            }
-            label = f"{base_mode}_{int(temp)}"
-            if fan is not None:
-                candidate_state["fan_mode"] = fan
-                label = f"{base_mode}_{fan}_{int(temp)}"
+        for fan in fan_candidates:
+            for temp in mode_temps:
+                candidate_state: dict[str, Any] = {
+                    "power": True,
+                    "hvac_mode": mode,
+                    "target_temperature": int(temp),
+                }
+                label = f"{mode}_{int(temp)}"
+                if fan is not None:
+                    candidate_state["fan_mode"] = fan
+                    label = f"{mode}_{fan}_{int(temp)}"
 
-            try:
-                engine.resolve_command(candidate_state)
-                candidates.append((label, candidate_state))
-            except Exception:
-                continue
+                if use_vertical and swing_vertical_values:
+                    candidate_state["swing_vertical"] = swing_vertical_values[0]
+                    label = f"{label}_sv"
+                if use_horizontal and swing_horizontal_values:
+                    candidate_state["swing_horizontal"] = swing_horizontal_values[0]
+                    label = f"{label}_sh"
 
-    if candidates:
-        states.append(candidates[0])
-    if profile == "full" and len(candidates) > 1:
-        states.append(candidates[1])
+                try:
+                    engine.resolve_command(candidate_state)
+                    mode_candidates.append((label, candidate_state))
+                except Exception:
+                    continue
+
+        if mode_candidates:
+            states.append(mode_candidates[0])
+            if profile == "full" and len(mode_candidates) > 1:
+                states.append(mode_candidates[1])
 
     return states

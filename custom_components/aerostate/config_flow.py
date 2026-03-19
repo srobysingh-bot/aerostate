@@ -52,6 +52,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "status": "not_run",
             "transport_ok": False,
             "set_available": False,
+            "supported_modes": [],
             "attempted": [],
             "error": "",
         }
@@ -186,6 +187,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "status": "skipped",
                     "transport_ok": False,
                     "set_available": False,
+                    "supported_modes": [],
                     "attempted": [],
                     "error": "",
                 }
@@ -202,6 +204,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "status": "failed",
                     "transport_ok": False,
                     "set_available": False,
+                    "supported_modes": list(pack.capabilities.hvac_modes),
                     "attempted": [],
                     "error": "validation_transport_unavailable",
                 }
@@ -219,6 +222,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "status": "passed",
                     "transport_ok": True,
                     "set_available": set_available,
+                    "supported_modes": list(pack.capabilities.hvac_modes),
                     "attempted": attempted,
                     "error": "",
                 }
@@ -240,6 +244,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "status": "failed",
                     "transport_ok": True,
                     "set_available": set_available,
+                    "supported_modes": list(pack.capabilities.hvac_modes),
                     "attempted": attempted,
                     "error": "validation_failed",
                 }
@@ -267,6 +272,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         summary = self._validation_summary
         attempted = summary.get("attempted", [])
+        supported_modes = summary.get("supported_modes", [])
         pack = get_registry().get(self._selected_pack_id or "")
         limitation = describe_pack_limitations(pack)
         return self.async_show_form(
@@ -276,6 +282,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "status": str(summary.get("status", "not_run")),
                 "transport_ok": "yes" if summary.get("transport_ok") else "no",
                 "set_available": "yes" if summary.get("set_available") else "no",
+                "supported_modes": ", ".join(supported_modes) if supported_modes else "none",
                 "attempted": ", ".join(attempted) if attempted else "none",
                 "error": str(summary.get("error", "")) or "none",
                 "pack_notes": pack.notes or "none",

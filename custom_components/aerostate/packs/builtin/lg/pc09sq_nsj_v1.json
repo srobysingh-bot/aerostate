@@ -11,7 +11,7 @@
     "max_temperature":  30,
     "temperature_step":  1,
     "verified":  true,
-    "notes":  "Verified cool-only pack. No swing payloads are included yet.",
+    "notes":  "Verified cool-only pack. Auto/Heat/Dry/Fan-only/Swing are intentionally hidden until real verified payloads are captured.",
     "mvp_test_pack":  false,
     "engine":  {
                    "type":  "table"

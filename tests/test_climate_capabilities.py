@@ -142,3 +142,53 @@ async def test_climate_rejects_unsupported_hvac_mode() -> None:
 
     with pytest.raises(HomeAssistantError, match="not supported"):
         await climate.async_set_hvac_mode(HVACMode.HEAT)
+
+
+def _full_capability_pack() -> ModelPack:
+    return ModelPack(
+        pack_id="lg.full.v1",
+        brand="LG",
+        pack_version=1,
+        models=["PC09SQ NSJ"],
+        transport="broadlink_base64",
+        min_temperature=18,
+        max_temperature=30,
+        capabilities=PackCapabilities(
+            hvac_modes=["auto", "heat", "dry", "fan_only", "cool"],
+            fan_modes=["auto", "low", "mid", "high"],
+            swing_vertical_modes=[],
+            swing_horizontal_modes=[],
+            presets=[],
+        ),
+        engine_type="table",
+        commands={
+            "off": "OFF",
+            "auto": {"auto": {"18": "A"}},
+            "heat": {"auto": {"18": "H"}},
+            "dry": {"auto": {"18": "D"}},
+            "fan_only": {"auto": {"18": "F"}},
+            "cool": {"auto": {"18": "C"}},
+        },
+        verified=True,
+        notes="Synthetic full capability pack for unit test",
+    )
+
+
+def test_climate_exposes_all_hvac_modes_from_capabilities() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_full_capability_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeEngine(),
+    )
+
+    assert climate.hvac_modes == [
+        HVACMode.OFF,
+        HVACMode.AUTO,
+        HVACMode.HEAT,
+        HVACMode.DRY,
+        HVACMode.FAN_ONLY,
+        HVACMode.COOL,
+    ]
+    assert climate.fan_modes == ["auto", "low", "mid", "high"]

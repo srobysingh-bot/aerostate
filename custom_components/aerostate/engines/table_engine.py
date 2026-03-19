@@ -29,14 +29,14 @@ class TableEngine(StateEngine):
     def resolve_command(self, state: dict) -> str:
         """Resolve state to command by traversing pack command tree.
 
-        Supports lookup paths based on pack capabilities:
-        1. If power=off: return commands["off"]
-        2. Otherwise dynamically build path based on capabilities:
-           - Start with commands[hvac_mode]
-           - If swing_vertical supported: -> commands[...][swing_vertical]
-           - If swing_horizontal supported: -> commands[...][swing_horizontal]
-           - If fan_mode supported: -> commands[...][fan_mode]
-           - If temperature supported: -> commands[...][int(temperature)]
+          Supports lookup paths based on pack capabilities:
+          1. If power=off: return commands["off"]
+          2. Otherwise: start at commands[hvac_mode] and try supported matrix shapes:
+              - mode -> fan -> temp
+              - mode -> fan -> swing_vertical -> temp
+              - mode -> fan -> swing_vertical -> swing_horizontal -> temp
+              - mode -> swing_vertical -> fan -> temp
+              - mode -> swing_vertical -> swing_horizontal -> fan -> temp
 
         Args:
             state: Dictionary containing AC state
@@ -92,18 +92,22 @@ class TableEngine(StateEngine):
         if swing_horizontal is None and self._capabilities.swing_horizontal_modes:
             swing_horizontal = self._capabilities.swing_horizontal_modes[0]
 
-        # Option A MVP resolution order support:
-        # 1) mode -> fan -> temp
-        # 2) mode -> swing_vertical -> fan -> temp
-        # 3) mode -> swing_vertical -> swing_horizontal -> fan -> temp
-        # Swing levels are traversed only if they exist in the command tree.
+        # Try the supported path variants without silently falling back to the wrong command.
         candidates: list[list[str]] = []
         if fan_mode is not None:
             candidates.append([fan_mode, temp_str])
             if swing_vertical is not None:
+                candidates.append([fan_mode, swing_vertical, temp_str])
                 candidates.append([swing_vertical, fan_mode, temp_str])
                 if swing_horizontal is not None:
+                    candidates.append([fan_mode, swing_vertical, swing_horizontal, temp_str])
                     candidates.append([swing_vertical, swing_horizontal, fan_mode, temp_str])
+        else:
+            candidates.append([temp_str])
+            if swing_vertical is not None:
+                candidates.append([swing_vertical, temp_str])
+                if swing_horizontal is not None:
+                    candidates.append([swing_vertical, swing_horizontal, temp_str])
 
         last_error: ValueError | None = None
         for candidate in candidates:
@@ -136,5 +140,5 @@ class TableEngine(StateEngine):
         raise ValueError(
             f"Unable to resolve command for hvac_mode={hvac_mode}, fan_mode={fan_mode}, "
             f"swing_vertical={swing_vertical}, swing_horizontal={swing_horizontal}, temp={temp_str}. "
-            f"Last error: {last_error}"
+            f"Tried paths: {candidates}. Last error: {last_error}"
         )

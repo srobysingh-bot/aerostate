@@ -61,3 +61,24 @@ def test_coverage_report_detects_missing_temperature_gaps() -> None:
     report = get_pack_coverage_report(pack)
     assert 19 in report["missing_temperature_gaps"]
     assert any("Missing temperatures" in issue for issue in report["issues"])
+
+
+def test_coverage_report_includes_per_mode_temperatures_and_swing_support() -> None:
+    pack = _pack()
+    report = get_pack_coverage_report(pack)
+
+    assert "available_temperatures_by_mode" in report
+    assert report["available_temperatures_by_mode"]["cool"] == [18, 19, 20]
+    assert "swing_support_by_mode" in report
+    assert report["swing_support_by_mode"]["cool"]["vertical"] is False
+    assert report["swing_support_by_mode"]["cool"]["horizontal"] is False
+    assert "mode_matrix" in report
+    assert report["mode_matrix"]["cool"]["fan_branches"] == ["auto", "low"]
+
+
+def test_validate_pack_coverage_detects_missing_branch_for_additional_mode() -> None:
+    pack = _pack()
+    pack.capabilities.hvac_modes = ["cool", "heat"]
+
+    issues = validate_pack_coverage(pack)
+    assert any("Missing command tree for hvac mode 'heat'" in issue for issue in issues)
