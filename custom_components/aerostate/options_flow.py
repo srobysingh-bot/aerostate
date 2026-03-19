@@ -31,7 +31,7 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry
+        self._config_entry = config_entry
 
     @staticmethod
     def _schema(config_entry: config_entries.ConfigEntry, pack_options: list[selector.SelectOptionDict]) -> vol.Schema:
@@ -76,7 +76,7 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> config_entries.FlowResult:
         """Edit Broadlink entity, pack, optional sensors, and title."""
         registry = get_registry()
-        brand = self.config_entry.data.get(CONF_BRAND, "")
+        brand = self._config_entry.data.get(CONF_BRAND, "")
         packs = registry.list_brand_packs(brand)
 
         pack_options = [
@@ -93,32 +93,32 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             selected_remote = user_input.get(
                 CONF_BROADLINK_ENTITY,
-                self.config_entry.data.get(CONF_BROADLINK_ENTITY),
+                self._config_entry.data.get(CONF_BROADLINK_ENTITY),
             )
             selected_pack = user_input.get(
                 CONF_MODEL_PACK,
-                self.config_entry.data.get(CONF_MODEL_PACK),
+                self._config_entry.data.get(CONF_MODEL_PACK),
             )
 
             if has_entry_collision(
                 self.hass,
                 selected_remote,
                 selected_pack,
-                current_entry_id=self.config_entry.entry_id,
+                current_entry_id=self._config_entry.entry_id,
             ):
                 return self.async_show_form(
                     step_id="init",
-                    data_schema=self._schema(self.config_entry, pack_options),
+                    data_schema=self._schema(self._config_entry, pack_options),
                     errors={"base": "already_configured"},
                 )
 
-            new_data = dict(self.config_entry.data)
-            new_options = dict(self.config_entry.options)
+            new_data = dict(self._config_entry.data)
+            new_options = dict(self._config_entry.options)
 
             if selected_remote:
                 new_data[CONF_BROADLINK_ENTITY] = selected_remote
 
-            if selected_pack and selected_pack != self.config_entry.data.get(CONF_MODEL_PACK):
+            if selected_pack and selected_pack != self._config_entry.data.get(CONF_MODEL_PACK):
                 # Keep pack changes explicit by only updating when a new pack is selected.
                 new_data[CONF_MODEL_PACK] = selected_pack
 
@@ -139,19 +139,19 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             new_title = build_entry_title(selected_pack_obj, new_options)
 
             self.hass.config_entries.async_update_entry(
-                self.config_entry,
+                self._config_entry,
                 data=new_data,
                 options=new_options,
                 title=new_title,
             )
-            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            await self.hass.config_entries.async_reload(self._config_entry.entry_id)
             return self.async_create_entry(title="", data={})
 
-        current_pack = registry.get(self.config_entry.data.get(CONF_MODEL_PACK))
+        current_pack = registry.get(self._config_entry.data.get(CONF_MODEL_PACK))
         limitation = describe_pack_limitations(current_pack)
         return self.async_show_form(
             step_id="init",
-            data_schema=self._schema(self.config_entry, pack_options),
+            data_schema=self._schema(self._config_entry, pack_options),
             description_placeholders={
                 "pack_notes": current_pack.notes or "none",
                 "pack_limitations": limitation or "none",

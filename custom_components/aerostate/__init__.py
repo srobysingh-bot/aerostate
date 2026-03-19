@@ -251,7 +251,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         # Validate runtime dependencies and raise repair issues if needed.
-        await async_validate_entry_runtime(hass, entry)
+        async_validate_entry_runtime(hass, entry)
 
         _LOGGER.debug("AeroState setup complete for entry: %s", entry.entry_id)
         return True
