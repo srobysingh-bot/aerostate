@@ -95,7 +95,7 @@ def test_climate_supported_features_respect_pack_capabilities() -> None:
     features = climate.supported_features
     assert features & ClimateEntityFeature.FAN_MODE
     assert not (features & ClimateEntityFeature.SWING_MODE)
-    assert not (features & ClimateEntityFeature.SWING_HOR_MODE)
+    assert not (features & ClimateEntityFeature.SWING_HORIZONTAL_MODE)
     assert climate.swing_modes is None
     assert climate.swing_horizontal_modes is None
     assert climate.hvac_modes == [HVACMode.OFF, HVACMode.COOL]
@@ -192,3 +192,42 @@ def test_climate_exposes_all_hvac_modes_from_capabilities() -> None:
         HVACMode.COOL,
     ]
     assert climate.fan_modes == ["auto", "low", "mid", "high"]
+
+
+def _protocol_pack() -> ModelPack:
+    return ModelPack(
+        pack_id="lg.protocol.v1",
+        brand="LG",
+        pack_version=1,
+        models=["PC09SQ NSJ"],
+        transport="broadlink_base64",
+        min_temperature=18,
+        max_temperature=30,
+        capabilities=PackCapabilities(
+            hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
+            fan_modes=["auto", "low", "mid", "high"],
+            swing_vertical_modes=["off", "on"],
+            swing_horizontal_modes=["off", "on"],
+            presets=[],
+        ),
+        engine_type="lg_protocol",
+        commands={"off": "protocol_generated"},
+        verified=False,
+        notes="Protocol-generated test pack",
+    )
+
+
+def test_protocol_pack_climate_exposes_binary_swing_axes() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_protocol_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeEngine(),
+    )
+
+    features = climate.supported_features
+    assert features & ClimateEntityFeature.SWING_MODE
+    assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
+    assert climate.swing_modes == ["off", "on"]
+    assert climate.swing_horizontal_modes == ["off", "on"]

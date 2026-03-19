@@ -120,8 +120,10 @@ def validate_pack_dict(data: dict[str, Any]) -> None:
         raise ValueError("Only 'broadlink_base64' transport is currently supported")
 
     engine_type = data.get("engine", {}).get("type", "table")
-    if engine_type != "table":
-        raise ValueError(f"Unsupported engine type '{engine_type}'. Supported: table")
+    if engine_type not in {"table", "lg_protocol"}:
+        raise ValueError(
+            f"Unsupported engine type '{engine_type}'. Supported: table, lg_protocol"
+        )
 
     if "off" not in data["commands"]:
         raise ValueError("commands.off is required")

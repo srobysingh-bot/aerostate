@@ -71,7 +71,7 @@ async def test_self_test_uses_full_profile_and_emits_success_event(monkeypatch) 
 
     monkeypatch.setattr(integration, "get_registry", lambda: SimpleNamespace(get=lambda _pid: object()))
     monkeypatch.setattr(integration, "BroadlinkProvider", _Provider)
-    monkeypatch.setattr(integration, "TableEngine", _Engine)
+    monkeypatch.setattr(integration, "create_engine", lambda _pack: _Engine(_pack))
     monkeypatch.setattr(integration, "async_clear_validation_failed", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(integration, "async_report_validation_failed", lambda *_args, **_kwargs: None)
 
@@ -105,7 +105,7 @@ async def test_self_test_invalid_profile_falls_back_to_basic(monkeypatch) -> Non
 
     monkeypatch.setattr(integration, "get_registry", lambda: SimpleNamespace(get=lambda _pid: object()))
     monkeypatch.setattr(integration, "BroadlinkProvider", _Provider)
-    monkeypatch.setattr(integration, "TableEngine", _Engine)
+    monkeypatch.setattr(integration, "create_engine", lambda _pack: _Engine(_pack))
     monkeypatch.setattr(integration, "async_clear_validation_failed", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(integration, "async_report_validation_failed", lambda *_args, **_kwargs: None)
 

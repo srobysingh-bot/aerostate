@@ -32,7 +32,7 @@ except ModuleNotFoundError:  # pragma: no cover - enables unit tests without HA 
     er = _EntityRegistryFallback()
 
 try:
-    from .engines import TableEngine
+    from .engines import create_engine
     from .packs.registry import get_registry
     from .providers import BroadlinkProvider
     from .repairs import (
@@ -42,7 +42,7 @@ try:
     )
     from .validation import build_safe_validation_states
 except ModuleNotFoundError:  # pragma: no cover - enables unit tests without HA runtime
-    TableEngine = None
+    create_engine = None
     BroadlinkProvider = None
     get_registry = None
 
@@ -153,7 +153,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
 
         pack = get_registry().get(pack_id)
         provider = BroadlinkProvider(hass, broadlink_entity)
-        engine = TableEngine(pack)
+        engine = create_engine(pack)
 
         if not await provider.test_connection():
             _LOGGER.warning("Self-test transport unavailable for %s", broadlink_entity)

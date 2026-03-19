@@ -21,7 +21,7 @@ from .const import (
     CONF_TEMP_SENSOR,
     DOMAIN,
 )
-from .engines import TableEngine
+from .engines import create_engine
 from .flow_helpers import (
     build_entry_title,
     build_entry_unique_id,
@@ -199,7 +199,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             registry = get_registry()
             pack = registry.get(self._selected_pack_id or "")
             provider = BroadlinkProvider(self.hass, self._broadlink_entity or "")
-            engine = TableEngine(pack)
+            engine = create_engine(pack)
 
             transport_ok = await provider.test_connection()
             if not transport_ok:

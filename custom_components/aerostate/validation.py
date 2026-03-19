@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .engines import TableEngine
+from .engines import create_engine
 from .packs.coverage import get_pack_coverage_report
 
 
@@ -37,7 +37,7 @@ def build_safe_validation_states(pack: object, profile: str = "basic") -> list[t
         )
     ]
 
-    engine = TableEngine(pack)
+    engine = create_engine(pack)
     for mode in supported_modes:
         mode_candidates: list[tuple[str, dict[str, Any]]] = []
         mode_temps = list(temps_by_mode.get(mode, [])) or (available_temps if available_temps else [int(first_temp)])

@@ -27,7 +27,7 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN,
 )
-from .engines import TableEngine
+from .engines import StateEngine, create_engine
 from .providers import BroadlinkProvider
 from .repairs import async_clear_command_failure, async_report_command_failure
 
@@ -53,7 +53,7 @@ class AeroStateClimate(ClimateEntity):
         entry: ConfigEntry,
         pack: ModelPack,
         provider: BroadlinkProvider,
-        engine: TableEngine,
+        engine: StateEngine,
     ) -> None:
         """Initialize climate entity.
 
@@ -192,7 +192,7 @@ class AeroStateClimate(ClimateEntity):
             features |= ClimateEntityFeature.SWING_MODE
 
         if self._pack.capabilities.swing_horizontal_modes:
-            features |= ClimateEntityFeature.SWING_HOR_MODE
+            features |= ClimateEntityFeature.SWING_HORIZONTAL_MODE
 
         return features
 
@@ -514,7 +514,7 @@ async def async_setup_entry(
 
         # Create provider and engine
         provider = BroadlinkProvider(hass, broadlink_entity)
-        engine = TableEngine(pack)
+        engine = create_engine(pack)
 
         # Test connection
         is_connected = await provider.test_connection()

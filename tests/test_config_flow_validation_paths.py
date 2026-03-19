@@ -105,7 +105,7 @@ async def test_validation_step_success(monkeypatch) -> None:
 
     monkeypatch.setattr("custom_components.aerostate.config_flow.get_registry", lambda: _FakeRegistry())
     monkeypatch.setattr("custom_components.aerostate.config_flow.BroadlinkProvider", _ProviderPass)
-    monkeypatch.setattr("custom_components.aerostate.config_flow.TableEngine", _EnginePass)
+    monkeypatch.setattr("custom_components.aerostate.config_flow.create_engine", lambda _pack: _EnginePass(_pack))
     monkeypatch.setattr(
         "custom_components.aerostate.config_flow.build_safe_validation_states",
         lambda _pack, _profile: [("off", {"power": False, "hvac_mode": "off", "target_temperature": 18})],
@@ -128,7 +128,7 @@ async def test_validation_step_transport_failure(monkeypatch) -> None:
 
     monkeypatch.setattr("custom_components.aerostate.config_flow.get_registry", lambda: _FakeRegistry())
     monkeypatch.setattr("custom_components.aerostate.config_flow.BroadlinkProvider", _ProviderNoTransport)
-    monkeypatch.setattr("custom_components.aerostate.config_flow.TableEngine", _EnginePass)
+    monkeypatch.setattr("custom_components.aerostate.config_flow.create_engine", lambda _pack: _EnginePass(_pack))
 
     result = await flow.async_step_validation({"run_validation": True})
 

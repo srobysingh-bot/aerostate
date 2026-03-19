@@ -57,6 +57,8 @@ def describe_pack_limitations(pack) -> str:
 
     if pack.verified and cool_only and no_swing:
         return "Verified cool-only pack. No swing payloads included."
+    if pack.engine_type == "lg_protocol" and not pack.verified:
+        return "Experimental protocol-generated LG control. Verify swing behavior on real hardware."
     if not pack.verified:
         return "Experimental pack. Validate behavior before daily use."
     if no_swing:

@@ -122,6 +122,9 @@ def _swing_tree_exists(pack: ModelPack, horizontal: bool = False) -> bool:
 
 def validate_pack_coverage(pack: ModelPack) -> list[str]:
     """Validate coverage and return human-readable issue list."""
+    if pack.engine_type != "table":
+        return []
+
     issues: list[str] = []
 
     expected_temps = set(range(pack.min_temperature, pack.max_temperature + 1))
@@ -167,6 +170,49 @@ def validate_pack_coverage(pack: ModelPack) -> list[str]:
 
 def get_pack_coverage_report(pack: ModelPack) -> dict[str, Any]:
     """Return pack coverage summary for diagnostics/tooling."""
+    if pack.engine_type != "table":
+        temps = list(range(pack.min_temperature, pack.max_temperature + 1))
+        mode_matrix = {
+            mode: {
+                "fan_branches": list(pack.capabilities.fan_modes),
+                "available_temperature_points": list(temps),
+                "missing_temperature_points": [],
+                "swing": {
+                    "vertical": bool(pack.capabilities.swing_vertical_modes),
+                    "horizontal": bool(pack.capabilities.swing_horizontal_modes),
+                },
+                "has_command_tree": True,
+            }
+            for mode in pack.capabilities.hvac_modes
+        }
+        return {
+            "pack_id": pack.pack_id,
+            "pack_version": pack.pack_version,
+            "verified": pack.verified,
+            "notes": pack.notes,
+            "supported_hvac_modes": pack.capabilities.hvac_modes,
+            "supported_fan_modes": pack.capabilities.fan_modes,
+            "available_temperature_points": temps,
+            "available_temperatures_by_mode": {
+                mode: list(temps) for mode in pack.capabilities.hvac_modes
+            },
+            "missing_temperature_gaps": [],
+            "has_vertical_swing_tree": bool(pack.capabilities.swing_vertical_modes),
+            "has_horizontal_swing_tree": bool(pack.capabilities.swing_horizontal_modes),
+            "swing_vertical_support": bool(pack.capabilities.swing_vertical_modes),
+            "swing_horizontal_support": bool(pack.capabilities.swing_horizontal_modes),
+            "swing_support_by_mode": {
+                mode: {
+                    "vertical": bool(pack.capabilities.swing_vertical_modes),
+                    "horizontal": bool(pack.capabilities.swing_horizontal_modes),
+                }
+                for mode in pack.capabilities.hvac_modes
+            },
+            "mode_matrix": mode_matrix,
+            "issues": [],
+            "is_complete": True,
+        }
+
     temps = _collect_temperature_points(pack)
     expected = set(range(pack.min_temperature, pack.max_temperature + 1))
     missing = sorted(expected - set(temps))
