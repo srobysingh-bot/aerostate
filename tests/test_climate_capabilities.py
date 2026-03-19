@@ -1,0 +1,144 @@
+"""Unit tests for climate capability exposure and validation behavior."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+pytest.importorskip("homeassistant")
+
+from homeassistant.components.climate import ClimateEntityFeature, HVACMode
+from homeassistant.exceptions import HomeAssistantError
+
+from custom_components.aerostate.climate import AeroStateClimate
+from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
+
+
+class _FakeStates:
+    def get(self, entity_id: str):
+        return None
+
+
+class _FakeUnits:
+    temperature_unit = "C"
+
+
+class _FakeConfig:
+    units = _FakeUnits()
+
+
+class _FakeHass:
+    def __init__(self) -> None:
+        self.config = _FakeConfig()
+        self.states = _FakeStates()
+
+
+class _FakeProvider:
+    async def send_base64(self, payload: str) -> None:
+        return None
+
+
+class _FakeEngine:
+    def resolve_command(self, state: dict) -> str:
+        return "AAA"
+
+
+def _cool_only_pack() -> ModelPack:
+    return ModelPack(
+        pack_id="lg.pc09sq_nsj.v1",
+        brand="LG",
+        pack_version=1,
+        models=["PC09SQ NSJ"],
+        transport="broadlink_base64",
+        min_temperature=18,
+        max_temperature=30,
+        capabilities=PackCapabilities(
+            hvac_modes=["cool"],
+            fan_modes=["auto", "low", "mid", "high"],
+            swing_vertical_modes=[],
+            swing_horizontal_modes=[],
+            presets=[],
+        ),
+        engine_type="table",
+        commands={
+            "off": "OFF",
+            "cool": {
+                "auto": {"18": "C_AUTO_18"},
+                "low": {"18": "C_LOW_18"},
+                "mid": {"18": "C_MID_18"},
+                "high": {"18": "C_HIGH_18"},
+            },
+        },
+        verified=True,
+        notes="Verified cool-only pack. No swing payloads are included yet.",
+    )
+
+
+def _entry() -> SimpleNamespace:
+    return SimpleNamespace(
+        entry_id="entry_1",
+        data={"model_pack": "lg.pc09sq_nsj.v1", "broadlink_entity": "remote.living"},
+        options={},
+    )
+
+
+def test_climate_supported_features_respect_pack_capabilities() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_cool_only_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeEngine(),
+    )
+
+    features = climate.supported_features
+    assert features & ClimateEntityFeature.FAN_MODE
+    assert not (features & ClimateEntityFeature.SWING_MODE)
+    assert not (features & ClimateEntityFeature.SWING_HOR_MODE)
+    assert climate.swing_modes is None
+    assert climate.swing_horizontal_modes is None
+    assert climate.hvac_modes == [HVACMode.OFF, HVACMode.COOL]
+    assert climate.fan_modes == ["auto", "low", "mid", "high"]
+
+
+@pytest.mark.asyncio
+async def test_climate_rejects_unsupported_fan_mode() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_cool_only_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeEngine(),
+    )
+
+    with pytest.raises(HomeAssistantError, match="not supported"):
+        await climate.async_set_fan_mode("turbo")
+
+
+@pytest.mark.asyncio
+async def test_climate_rejects_unsupported_temperature() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_cool_only_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeEngine(),
+    )
+
+    with pytest.raises(HomeAssistantError, match="not available"):
+        await climate.async_set_temperature(temperature=26)
+
+
+@pytest.mark.asyncio
+async def test_climate_rejects_unsupported_hvac_mode() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_cool_only_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeEngine(),
+    )
+
+    with pytest.raises(HomeAssistantError, match="not supported"):
+        await climate.async_set_hvac_mode(HVACMode.HEAT)

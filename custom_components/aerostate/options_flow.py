@@ -1,0 +1,159 @@
+"""Options flow for AeroState integration."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import voluptuous as vol
+from homeassistant import config_entries
+from homeassistant.helpers import selector
+
+from .const import (
+    CONF_AREA,
+    CONF_BRAND,
+    CONF_BROADLINK_ENTITY,
+    CONF_HUM_SENSOR,
+    CONF_MODEL_PACK,
+    CONF_NAME,
+    CONF_POWER_SENSOR,
+    CONF_TEMP_SENSOR,
+)
+from .flow_helpers import (
+    build_entry_title,
+    describe_pack_limitations,
+    has_entry_collision,
+)
+from .packs.registry import get_registry
+
+
+class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
+    """Options flow for AeroState config entries."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    @staticmethod
+    def _schema(config_entry: config_entries.ConfigEntry, pack_options: list[selector.SelectOptionDict]) -> vol.Schema:
+        """Build options form schema."""
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_BROADLINK_ENTITY,
+                    default=config_entry.data.get(CONF_BROADLINK_ENTITY),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="remote")),
+                vol.Optional(
+                    CONF_MODEL_PACK,
+                    default=config_entry.data.get(CONF_MODEL_PACK),
+                ): selector.SelectSelector(selector.SelectSelectorConfig(options=pack_options)),
+                vol.Optional(
+                    CONF_TEMP_SENSOR,
+                    default=config_entry.options.get(CONF_TEMP_SENSOR),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Optional(
+                    CONF_HUM_SENSOR,
+                    default=config_entry.options.get(CONF_HUM_SENSOR),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Optional(
+                    CONF_POWER_SENSOR,
+                    default=config_entry.options.get(CONF_POWER_SENSOR),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["sensor", "switch"])
+                ),
+                vol.Optional(
+                    CONF_AREA,
+                    default=config_entry.options.get(CONF_AREA),
+                ): str,
+                vol.Optional(
+                    CONF_NAME,
+                    default=config_entry.options.get(CONF_NAME),
+                ): str,
+            }
+        )
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Edit Broadlink entity, pack, optional sensors, and title."""
+        registry = get_registry()
+        brand = self.config_entry.data.get(CONF_BRAND, "")
+        packs = registry.list_brand_packs(brand)
+
+        pack_options = [
+            selector.SelectOptionDict(
+                value=pack.pack_id,
+                label=(
+                    f"{pack.models[0] if pack.models else pack.pack_id} ({pack.pack_id})"
+                    f" - {describe_pack_limitations(pack) or ('Verified pack' if pack.verified else 'Experimental pack')}"
+                ),
+            )
+            for pack in packs
+        ]
+
+        if user_input is not None:
+            selected_remote = user_input.get(
+                CONF_BROADLINK_ENTITY,
+                self.config_entry.data.get(CONF_BROADLINK_ENTITY),
+            )
+            selected_pack = user_input.get(
+                CONF_MODEL_PACK,
+                self.config_entry.data.get(CONF_MODEL_PACK),
+            )
+
+            if has_entry_collision(
+                self.hass,
+                selected_remote,
+                selected_pack,
+                current_entry_id=self.config_entry.entry_id,
+            ):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._schema(self.config_entry, pack_options),
+                    errors={"base": "already_configured"},
+                )
+
+            new_data = dict(self.config_entry.data)
+            new_options = dict(self.config_entry.options)
+
+            if selected_remote:
+                new_data[CONF_BROADLINK_ENTITY] = selected_remote
+
+            if selected_pack and selected_pack != self.config_entry.data.get(CONF_MODEL_PACK):
+                # Keep pack changes explicit by only updating when a new pack is selected.
+                new_data[CONF_MODEL_PACK] = selected_pack
+
+            for sensor_key in (
+                CONF_TEMP_SENSOR,
+                CONF_HUM_SENSOR,
+                CONF_POWER_SENSOR,
+                CONF_AREA,
+                CONF_NAME,
+            ):
+                value = user_input.get(sensor_key)
+                if value:
+                    new_options[sensor_key] = value
+                else:
+                    new_options.pop(sensor_key, None)
+
+            selected_pack_obj = registry.get(new_data.get(CONF_MODEL_PACK))
+            new_title = build_entry_title(selected_pack_obj, new_options)
+
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=new_data,
+                options=new_options,
+                title=new_title,
+            )
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            return self.async_create_entry(title="", data={})
+
+        current_pack = registry.get(self.config_entry.data.get(CONF_MODEL_PACK))
+        limitation = describe_pack_limitations(current_pack)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self._schema(self.config_entry, pack_options),
+            description_placeholders={
+                "pack_notes": current_pack.notes or "none",
+                "pack_limitations": limitation or "none",
+            },
+        )

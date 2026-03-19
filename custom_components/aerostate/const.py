@@ -1,0 +1,12 @@
+"""Constants for the AeroState integration."""
+
+DOMAIN = "aerostate"
+CONF_BROADLINK_ENTITY = "broadlink_entity"
+CONF_BRAND = "brand"
+CONF_MODEL_PACK = "model_pack"
+CONF_TEMP_SENSOR = "temperature_sensor"
+CONF_HUM_SENSOR = "humidity_sensor"
+CONF_POWER_SENSOR = "power_sensor"
+CONF_AREA = "area"
+CONF_NAME = "name"
+DEFAULT_NAME = "AeroState AC"

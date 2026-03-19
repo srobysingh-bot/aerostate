@@ -1,0 +1,147 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select controller",
+        "description": "Choose the Broadlink remote entity used to send IR commands.",
+        "data": {
+          "broadlink_entity": "Broadlink remote"
+        }
+      },
+      "brand": {
+        "title": "Select brand",
+        "description": "Choose the AC brand.",
+        "data": {
+          "brand": "Brand"
+        }
+      },
+      "model": {
+        "title": "Select AC model",
+        "description": "Choose a model pack. {pack_notes_hint}",
+        "data": {
+          "model_pack": "Model pack"
+        }
+      },
+      "sensors": {
+        "title": "Link sensors and naming",
+        "description": "Optionally link room sensors and set display naming.",
+        "data": {
+          "temperature_sensor": "Room temperature sensor",
+          "humidity_sensor": "Room humidity sensor",
+          "power_sensor": "Power sensor",
+          "area": "Area",
+          "name": "Display name"
+        }
+      },
+      "validation": {
+        "title": "Validation test",
+        "description": "Optionally send onboarding validation commands.",
+        "data": {
+          "run_validation": "Run validation test commands"
+        }
+      },
+      "validation_result": {
+        "title": "Validation summary",
+        "description": "Status: {status}. Transport OK: {transport_ok}. Validation set available: {set_available}. Attempted: {attempted}. Error: {error}. Pack notes: {pack_notes}. Limitations: {pack_limitations}."
+      },
+      "confirm": {
+        "title": "Confirm setup",
+        "description": "Review your selection and create the entry. Verified: {pack_verified}. Notes: {pack_notes}. Limitations: {pack_limitations}."
+      }
+    },
+    "abort": {
+      "no_remote_entities": "No remote entities are available.",
+      "no_packs_available": "No model packs are available.",
+      "no_packs_for_brand": "No model packs are available for the selected brand.",
+      "validation_transport_unavailable": "Broadlink transport is unavailable.",
+      "validation_failed": "Validation commands failed. Check logs for details.",
+      "already_configured": "This controller and model pack are already configured."
+    },
+    "error": {
+      "validation_transport_unavailable": "Broadlink transport is unavailable.",
+      "validation_failed": "Validation commands failed. Check logs for details."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Edit AeroState options",
+        "description": "Update controller, model pack, linked sensors, and naming. Notes: {pack_notes}. Limitations: {pack_limitations}.",
+        "data": {
+          "broadlink_entity": "Broadlink remote",
+          "model_pack": "Model pack",
+          "temperature_sensor": "Room temperature sensor",
+          "humidity_sensor": "Room humidity sensor",
+          "power_sensor": "Power sensor",
+          "area": "Area",
+          "name": "Display name"
+        }
+      }
+    },
+    "error": {
+      "already_configured": "Another AeroState entry already uses this controller and model pack."
+    }
+  },
+  "issues": {
+    "missing_remote": {
+      "title": "Configured Broadlink remote is missing",
+      "description": "AeroState cannot find the configured Broadlink remote entity for this entry."
+    },
+    "missing_pack": {
+      "title": "Configured model pack is missing",
+      "description": "AeroState cannot load the configured model pack for this entry."
+    },
+    "invalid_pack": {
+      "title": "Model pack is invalid",
+      "description": "AeroState detected invalid capabilities or command structure in the configured model pack."
+    },
+    "missing_temp_sensor": {
+      "title": "Linked temperature sensor is missing",
+      "description": "AeroState cannot find the configured room temperature sensor."
+    },
+    "missing_humidity_sensor": {
+      "title": "Linked humidity sensor is missing",
+      "description": "AeroState cannot find the configured room humidity sensor."
+    },
+    "missing_power_sensor": {
+      "title": "Linked power sensor is missing",
+      "description": "AeroState cannot find the configured power sensor."
+    },
+    "command_resolution_failure": {
+      "title": "Command resolution failed",
+      "description": "AeroState could not resolve or send a command for the requested climate state."
+    },
+    "experimental_pack": {
+      "title": "Pack is experimental",
+      "description": "The selected model pack is marked as experimental and may not be stable for daily use."
+    },
+    "validation_failed": {
+      "title": "Validation failed",
+      "description": "AeroState validation failed for this installation. Re-run self-test after checking remote and pack settings."
+    },
+    "incomplete_command_matrix": {
+      "title": "Command matrix is incomplete",
+      "description": "Transport is available, but the selected pack appears to have missing command branches or temperatures."
+    }
+  },
+  "services": {
+    "run_self_test": {
+      "name": "Run AeroState self-test",
+      "description": "Run a safe IR self-test sequence against a configured AeroState entry.",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry ID",
+          "description": "Target AeroState config entry ID."
+        },
+        "entity_id": {
+          "name": "Climate entity",
+          "description": "Target AeroState climate entity."
+        },
+        "profile": {
+          "name": "Test profile",
+          "description": "basic runs safe pack-driven states; full attempts one additional supported state."
+        }
+      }
+    }
+  }
+}

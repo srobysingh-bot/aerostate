@@ -1,0 +1,25 @@
+run_self_test:
+  name: Run AeroState self-test
+  description: Run a safe IR self-test sequence against a configured AeroState entry.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Target AeroState config entry ID.
+      example: 01HXYZABCDEF1234567890
+      selector:
+        text:
+    entity_id:
+      name: Climate entity
+      description: Target AeroState climate entity.
+      selector:
+        entity:
+          domain: climate
+    profile:
+      name: Test profile
+      description: basic runs safe pack-driven states; full attempts one additional supported state.
+      default: basic
+      selector:
+        select:
+          options:
+            - basic
+            - full
