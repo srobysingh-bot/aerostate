@@ -15,6 +15,15 @@ def _ensure_list_of_strings(value: Any, field_name: str) -> None:
         raise ValueError(f"'{field_name}' must be a list of strings")
 
 
+def _ensure_dict_of_strings(value: Any, field_name: str) -> None:
+    """Validate a field is a dictionary of string keys and values."""
+    if not isinstance(value, dict):
+        raise ValueError(f"'{field_name}' must be an object with string values")
+    for key, item in value.items():
+        if not isinstance(key, str) or not isinstance(item, str):
+            raise ValueError(f"'{field_name}' must contain only string keys and values")
+
+
 def validate_pack_dict(data: dict[str, Any]) -> None:
     """Validate pack dictionary has required keys.
 
@@ -70,6 +79,12 @@ def validate_pack_dict(data: dict[str, Any]) -> None:
     if not isinstance(notes, str):
         raise ValueError("'notes' must be a string when provided")
 
+    physically_verified_modes = data.get("physically_verified_modes", [])
+    _ensure_list_of_strings(physically_verified_modes, "physically_verified_modes")
+
+    mode_status = data.get("mode_status", {})
+    _ensure_dict_of_strings(mode_status, "mode_status")
+
     # Validate capabilities structure
     if not isinstance(data.get("capabilities"), dict):
         raise ValueError("Capabilities must be a dictionary")
@@ -91,6 +106,15 @@ def validate_pack_dict(data: dict[str, Any]) -> None:
 
     if "off" in cap_data["hvac_modes"]:
         raise ValueError("capabilities.hvac_modes must not contain 'off'; OFF is managed by ClimateEntity")
+
+    mode_set = set(cap_data["hvac_modes"])
+    unknown_verified = [mode for mode in physically_verified_modes if mode not in mode_set]
+    if unknown_verified:
+        raise ValueError("'physically_verified_modes' contains unsupported modes")
+
+    unknown_status_modes = [mode for mode in mode_status.keys() if mode not in mode_set]
+    if unknown_status_modes:
+        raise ValueError("'mode_status' contains unsupported modes")
 
     if data["transport"] != "broadlink_base64":
         raise ValueError("Only 'broadlink_base64' transport is currently supported")
@@ -155,4 +179,6 @@ def load_pack_from_path(path: str) -> ModelPack:
         verified=bool(data.get("verified", False)),
         notes=str(data.get("notes", "")),
         mvp_test_pack=bool(data.get("mvp_test_pack", False)),
+        physically_verified_modes=list(data.get("physically_verified_modes", [])),
+        mode_status=dict(data.get("mode_status", {})),
     )

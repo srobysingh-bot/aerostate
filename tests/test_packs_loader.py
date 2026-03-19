@@ -43,6 +43,30 @@ def test_loader_accepts_valid_pack(tmp_path) -> None:
     assert pack.pack_id == "lg.test.v1"
     assert pack.pack_version == 1
     assert pack.verified is False
+    assert pack.physically_verified_modes == []
+    assert pack.mode_status == {}
+
+
+def test_loader_accepts_mode_truth_metadata(tmp_path) -> None:
+    data = _base_pack_dict()
+    data["physically_verified_modes"] = ["cool"]
+    data["mode_status"] = {"cool": "verified"}
+    pack_file = tmp_path / "pack.json"
+    pack_file.write_text(json.dumps(data), encoding="utf-8")
+
+    pack = load_pack_from_path(str(pack_file))
+    assert pack.physically_verified_modes == ["cool"]
+    assert pack.mode_status == {"cool": "verified"}
+
+
+def test_loader_rejects_mode_truth_for_unsupported_mode(tmp_path) -> None:
+    data = _base_pack_dict()
+    data["mode_status"] = {"heat": "experimental"}
+    pack_file = tmp_path / "pack.json"
+    pack_file.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="mode_status"):
+        load_pack_from_path(str(pack_file))
 
 
 def test_loader_rejects_off_in_capabilities(tmp_path) -> None:

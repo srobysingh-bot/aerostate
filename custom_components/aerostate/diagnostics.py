@@ -17,8 +17,10 @@ from .const import (
     CONF_TEMP_SENSOR,
     DOMAIN,
 )
+from .flow_helpers import describe_pack_limitations
 from .packs.coverage import get_pack_coverage_report
 from .packs.registry import get_registry
+from .packs.truth import build_mode_truth
 from .providers import BroadlinkProvider
 from .validation import build_safe_validation_states
 
@@ -48,6 +50,9 @@ async def async_get_config_entry_diagnostics(
     )
 
     coverage = get_pack_coverage_report(pack) if pack else None
+    mode_truth = build_mode_truth(pack) if pack else None
+    physically_verified_modes = [mode for mode, meta in (mode_truth or {}).items() if meta.get("physically_verified")]
+    experimental_modes = [mode for mode, meta in (mode_truth or {}).items() if meta.get("status") == "experimental"]
     transport_available = False
     validation_states_ready = False
     if pack and broadlink_entity:
@@ -74,8 +79,12 @@ async def async_get_config_entry_diagnostics(
             "pack_verified": pack.verified if pack else None,
             "pack_experimental": (not pack.verified) if pack else None,
             "pack_notes": pack.notes if pack else None,
+            "pack_limitations": describe_pack_limitations(pack) if pack else None,
             "pack_models": pack.models if pack else None,
             "pack_mvp_test_only": pack.mvp_test_pack if pack else None,
+            "pack_mode_truth": mode_truth,
+            "physically_verified_modes": physically_verified_modes,
+            "experimental_modes": experimental_modes,
             "pack_temperature_range": [pack.min_temperature, pack.max_temperature] if pack else None,
             "pack_capabilities_summary": {
                 "hvac_modes": pack.capabilities.hvac_modes if pack else None,

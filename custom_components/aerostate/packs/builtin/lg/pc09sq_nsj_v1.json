@@ -11,6 +11,14 @@
   "temperature_step": 1,
   "verified": false,
   "notes": "Imported from SmartIR 1070 matrix for LG PC09SQ NSJ: modes auto/cool/heat/dry/fan_only with fan auto/low/mid/high and temperatures 18-30. Swing modes intentionally hidden pending verified swing payloads.",
+  "physically_verified_modes": [],
+  "mode_status": {
+    "auto": "experimental",
+    "heat": "experimental",
+    "cool": "experimental",
+    "dry": "experimental",
+    "fan_only": "experimental"
+  },
   "mvp_test_pack": false,
   "engine": {
     "type": "table"

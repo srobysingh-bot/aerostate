@@ -86,6 +86,36 @@ def _resolve_entry_id_from_service(hass: HomeAssistant, call: ServiceCall) -> st
     return None
 
 
+def _build_mode_results_seed(pack: object) -> dict[str, dict[str, object]]:
+    """Initialize per-mode self-test result buckets."""
+    capabilities = getattr(pack, "capabilities", None)
+    modes = [mode for mode in list(getattr(capabilities, "hvac_modes", [])) if mode != "off"]
+    seed: dict[str, dict[str, object]] = {
+        "off": {"attempted": [], "success_count": 0, "error_count": 0, "errors": [], "status": "not_tested"}
+    }
+    for mode in modes:
+        seed[mode] = {"attempted": [], "success_count": 0, "error_count": 0, "errors": [], "status": "not_tested"}
+    return seed
+
+
+def _finalize_mode_results(mode_results: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    """Finalize status fields for per-mode self-test result buckets."""
+    for result in mode_results.values():
+        attempted_count = len(result["attempted"])
+        error_count = int(result["error_count"])
+        success_count = int(result["success_count"])
+        result["attempted_count"] = attempted_count
+        if attempted_count == 0:
+            result["status"] = "not_tested"
+        elif error_count > 0:
+            result["status"] = "failed"
+        elif success_count == attempted_count:
+            result["status"] = "passed"
+        else:
+            result["status"] = "partial"
+    return mode_results
+
+
 async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) -> None:
     """Run safe service-level transport self-test for an AeroState entry."""
     try:
@@ -141,18 +171,29 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
 
         attempted: list[str] = []
         errors: list[str] = []
+        mode_results = _build_mode_results_seed(pack)
         for label, state in build_safe_validation_states(pack, profile):
+            mode = str(state.get("hvac_mode", "unknown"))
+            bucket = mode_results.setdefault(
+                mode,
+                {"attempted": [], "success_count": 0, "error_count": 0, "errors": [], "status": "not_tested"},
+            )
+            bucket["attempted"].append(label)
             try:
                 payload = engine.resolve_command(state)
                 await provider.send_base64(payload)
                 attempted.append(label)
+                bucket["success_count"] = int(bucket["success_count"]) + 1
             except Exception as err:
                 attempted.append(label)
                 errors.append(f"{label}: {err}")
+                bucket["error_count"] = int(bucket["error_count"]) + 1
+                bucket["errors"].append(str(err))
                 _LOGGER.warning("Self-test command failed (%s): %s", label, err)
                 break
 
         success = len(errors) == 0
+        mode_results = _finalize_mode_results(mode_results)
 
         if DOMAIN in hass.data:
             hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})["last_self_test"] = {
@@ -163,6 +204,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                 "profile": profile,
                 "attempted": attempted,
                 "errors": errors,
+                "mode_results": mode_results,
             }
 
         if success:
@@ -190,6 +232,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                 "profile": profile,
                 "attempted": attempted,
                 "errors": errors,
+                "mode_results": mode_results,
             },
         )
     except Exception:

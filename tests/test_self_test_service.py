@@ -92,6 +92,7 @@ async def test_self_test_uses_full_profile_and_emits_success_event(monkeypatch) 
     assert payload["entry_id"] == "entry_1"
     assert payload["attempted"] == ["off"]
     assert payload["errors"] == []
+    assert payload["mode_results"]["off"]["status"] == "passed"
 
 
 @pytest.mark.asyncio
@@ -119,3 +120,4 @@ async def test_self_test_invalid_profile_falls_back_to_basic(monkeypatch) -> Non
     assert seen_profiles == ["basic"]
     _, payload = hass.bus.events[-1]
     assert payload["profile"] == "basic"
+    assert payload["mode_results"]["off"]["status"] == "passed"

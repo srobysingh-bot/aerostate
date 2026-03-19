@@ -66,6 +66,8 @@ def _pack() -> ModelPack:
         commands={"off": "OFF", "cool": {"auto": {"18": "X"}}},
         verified=True,
         notes="verified",
+        physically_verified_modes=["cool"],
+        mode_status={"cool": "verified"},
     )
 
 
@@ -102,6 +104,9 @@ async def test_diagnostics_includes_coverage_and_validation(monkeypatch) -> None
     resolved = result["resolved"]
     assert resolved["pack_id"] == "lg.test.v1"
     assert resolved["pack_verified"] is True
+    assert resolved["pack_mode_truth"]["cool"]["physically_verified"] is True
+    assert resolved["physically_verified_modes"] == ["cool"]
+    assert resolved["experimental_modes"] == []
     assert resolved["supported_modes"] == ["cool"]
     assert resolved["supported_swing_vertical"] == []
     assert resolved["supported_swing_horizontal"] == []

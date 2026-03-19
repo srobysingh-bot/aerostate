@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -35,3 +35,5 @@ class ModelPack:
     verified: bool = False
     notes: str = ""
     mvp_test_pack: bool = False
+    physically_verified_modes: list[str] = field(default_factory=list)
+    mode_status: dict[str, str] = field(default_factory=dict)

@@ -30,6 +30,7 @@ from .flow_helpers import (
 )
 from .options_flow import AeroStateOptionsFlowHandler
 from .packs.registry import get_registry
+from .packs.truth import build_mode_truth
 from .providers import BroadlinkProvider
 from .validation import build_safe_validation_states
 
@@ -53,6 +54,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "transport_ok": False,
             "set_available": False,
             "supported_modes": [],
+            "mode_truth": {},
             "attempted": [],
             "error": "",
         }
@@ -188,6 +190,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "transport_ok": False,
                     "set_available": False,
                     "supported_modes": [],
+                    "mode_truth": {},
                     "attempted": [],
                     "error": "",
                 }
@@ -205,6 +208,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "transport_ok": False,
                     "set_available": False,
                     "supported_modes": list(pack.capabilities.hvac_modes),
+                    "mode_truth": build_mode_truth(pack),
                     "attempted": [],
                     "error": "validation_transport_unavailable",
                 }
@@ -223,6 +227,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "transport_ok": True,
                     "set_available": set_available,
                     "supported_modes": list(pack.capabilities.hvac_modes),
+                    "mode_truth": build_mode_truth(pack),
                     "attempted": attempted,
                     "error": "",
                 }
@@ -245,6 +250,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "transport_ok": True,
                     "set_available": set_available,
                     "supported_modes": list(pack.capabilities.hvac_modes),
+                    "mode_truth": build_mode_truth(pack),
                     "attempted": attempted,
                     "error": "validation_failed",
                 }
@@ -273,6 +279,13 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         summary = self._validation_summary
         attempted = summary.get("attempted", [])
         supported_modes = summary.get("supported_modes", [])
+        mode_truth = summary.get("mode_truth", {})
+        physically_verified_modes = [
+            mode for mode, meta in mode_truth.items() if isinstance(meta, dict) and meta.get("physically_verified")
+        ]
+        experimental_modes = [
+            mode for mode, meta in mode_truth.items() if isinstance(meta, dict) and meta.get("status") == "experimental"
+        ]
         pack = get_registry().get(self._selected_pack_id or "")
         limitation = describe_pack_limitations(pack)
         return self.async_show_form(
@@ -283,6 +296,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "transport_ok": "yes" if summary.get("transport_ok") else "no",
                 "set_available": "yes" if summary.get("set_available") else "no",
                 "supported_modes": ", ".join(supported_modes) if supported_modes else "none",
+                "physically_verified_modes": ", ".join(physically_verified_modes) if physically_verified_modes else "none",
+                "experimental_modes": ", ".join(experimental_modes) if experimental_modes else "none",
                 "attempted": ", ".join(attempted) if attempted else "none",
                 "error": str(summary.get("error", "")) or "none",
                 "pack_notes": pack.notes or "none",
