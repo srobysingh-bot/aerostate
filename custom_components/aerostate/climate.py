@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +48,7 @@ class AeroStateClimate(ClimateEntity):
     _attr_has_entity_name = True
     _attr_max_temp = 30
     _attr_min_temp = 16
+    _command_debounce_seconds = 0.45
 
     def __init__(
         self,
@@ -104,6 +107,14 @@ class AeroStateClimate(ClimateEntity):
             self._attr_max_temp = float(max(self._supported_temperatures))
             self._attr_target_temperature = float(min(self._supported_temperatures))
 
+        # Latest-wins command pipeline state.
+        self._pending_state: dict[str, Any] | None = None
+        self._last_sent_state: dict[str, Any] | None = None
+        self._last_sent_payload_hash: str | None = None
+        self._last_send_error: str | None = None
+        self._debounce_handle: asyncio.TimerHandle | None = None
+        self._send_worker_task: asyncio.Task[None] | None = None
+
     def _entry_value(self, key: str, default: Any = None) -> Any:
         """Read an entry value, preferring options over data."""
         if key in self._entry.options:
@@ -137,18 +148,20 @@ class AeroStateClimate(ClimateEntity):
         return state.state
 
     def _sync_hvac_from_power_sensor(self) -> None:
-        """Keep HVAC mode conservative when linked power sensor indicates off/unavailable."""
+        """Observe linked power sensor without forcing command intent."""
         power_state = self._power_sensor_state()
         if power_state is None:
             return
         if power_state in {"unavailable", "unknown"}:
-            # Preserve command intent; state can be restored later.
+            # Preserve command intent while sensor is laggy/unavailable.
             return
         normalized = power_state.lower()
         if normalized in {"off", "false", "0"}:
-            self._attr_hvac_mode = HVACMode.OFF
-        elif normalized in {"on", "true", "1"} and self._attr_hvac_mode == HVACMode.OFF:
-            self._attr_hvac_mode = self._last_requested_hvac_mode
+            _LOGGER.debug(
+                "Linked power sensor reports OFF for %s, keeping desired hvac_mode=%s",
+                self.entity_id,
+                self._attr_hvac_mode,
+            )
 
     @property
     def name(self) -> str:
@@ -276,14 +289,32 @@ class AeroStateClimate(ClimateEntity):
 
     @property
     def available(self) -> bool:
-        """Report availability, honoring linked power sensor availability when configured."""
-        power_state = self._power_sensor_state()
-        if power_state in {"unavailable", "unknown"}:
-            return False
+        """Report entity availability.
+
+        Keep the entity available even when the linked power sensor is laggy,
+        so the command pipeline can continue and recover gracefully.
+        """
         return True
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose pipeline health and linked power sensor diagnostics."""
+        power_state = self._power_sensor_state()
+        desired_state = self._pending_state or self._build_state_dict(sync_power_sensor=False)
+        desired_differs_from_last_sent = desired_state != self._last_sent_state
+
+        attrs: dict[str, Any] = {
+            "linked_power_sensor_state": power_state,
+            "linked_power_sensor_degraded": power_state in {"unavailable", "unknown"},
+            "pending_command": self._pending_state is not None,
+            "desired_differs_from_last_sent": desired_differs_from_last_sent,
+        }
+        if self._last_send_error:
+            attrs["last_command_error"] = self._last_send_error
+        return attrs
+
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode and send command."""
+        """Set HVAC mode and schedule command apply."""
         if hvac_mode not in self.hvac_modes:
             _LOGGER.warning(
                 "Rejected hvac mode '%s' for pack %s. Supported modes: %s",
@@ -293,20 +324,13 @@ class AeroStateClimate(ClimateEntity):
             )
             raise HomeAssistantError(f"HVAC mode '{hvac_mode}' is not supported by selected pack")
 
-        old_mode = self._attr_hvac_mode
         self._attr_hvac_mode = hvac_mode
         if hvac_mode != HVACMode.OFF:
             self._last_requested_hvac_mode = hvac_mode
-        try:
-            await self._apply_state()
-        except HomeAssistantError:
-            self._attr_hvac_mode = old_mode
-            self.async_write_ha_state()
-            raise
+        self._schedule_state_apply()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set target temperature and send command."""
-        old_temp = self._attr_target_temperature
+        """Set target temperature and schedule command apply."""
         if ATTR_TEMPERATURE in kwargs:
             requested = int(round(float(kwargs[ATTR_TEMPERATURE])))
             if self._supported_temperatures and requested not in self._supported_temperatures:
@@ -320,15 +344,10 @@ class AeroStateClimate(ClimateEntity):
                     f"Temperature {requested} is not available in the selected pack command matrix"
                 )
             self._attr_target_temperature = requested
-        try:
-            await self._apply_state()
-        except HomeAssistantError:
-            self._attr_target_temperature = old_temp
-            self.async_write_ha_state()
-            raise
+        self._schedule_state_apply()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
-        """Set fan mode and send command."""
+        """Set fan mode and schedule command apply."""
         if fan_mode not in self._pack.capabilities.fan_modes:
             _LOGGER.warning(
                 "Rejected fan mode '%s' for pack %s. Supported fan modes: %s",
@@ -338,17 +357,11 @@ class AeroStateClimate(ClimateEntity):
             )
             raise HomeAssistantError(f"Fan mode '{fan_mode}' is not supported by selected pack")
 
-        old_mode = self._attr_fan_mode
         self._attr_fan_mode = fan_mode
-        try:
-            await self._apply_state()
-        except HomeAssistantError:
-            self._attr_fan_mode = old_mode
-            self.async_write_ha_state()
-            raise
+        self._schedule_state_apply()
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
-        """Set vertical swing and send command."""
+        """Set vertical swing and schedule command apply."""
         if swing_mode not in self._pack.capabilities.swing_vertical_modes:
             _LOGGER.warning(
                 "Rejected vertical swing mode '%s' for pack %s. Supported vertical swing modes: %s",
@@ -360,19 +373,13 @@ class AeroStateClimate(ClimateEntity):
                 f"Vertical swing mode '{swing_mode}' is not supported by selected pack"
             )
 
-        old_mode = self._attr_swing_mode
         self._attr_swing_mode = swing_mode
-        try:
-            await self._apply_state()
-        except HomeAssistantError:
-            self._attr_swing_mode = old_mode
-            self.async_write_ha_state()
-            raise
+        self._schedule_state_apply()
 
     async def async_set_swing_horizontal_mode(
         self, swing_horizontal_mode: str
     ) -> None:
-        """Set horizontal swing and send command."""
+        """Set horizontal swing and schedule command apply."""
         if swing_horizontal_mode not in self._pack.capabilities.swing_horizontal_modes:
             _LOGGER.warning(
                 "Rejected horizontal swing mode '%s' for pack %s. Supported horizontal swing modes: %s",
@@ -384,77 +391,116 @@ class AeroStateClimate(ClimateEntity):
                 f"Horizontal swing mode '{swing_horizontal_mode}' is not supported by selected pack"
             )
 
-        old_mode = self._attr_swing_horizontal_mode
         self._attr_swing_horizontal_mode = swing_horizontal_mode
-        try:
-            await self._apply_state()
-        except HomeAssistantError:
-            self._attr_swing_horizontal_mode = old_mode
-            self.async_write_ha_state()
-            raise
+        self._schedule_state_apply()
 
     async def async_turn_on(self) -> None:
         """Turn on (set to last hvac_mode or cool)."""
         if self._attr_hvac_mode == HVACMode.OFF:
             self._attr_hvac_mode = self._last_requested_hvac_mode
 
-        await self._apply_state()
+        self._schedule_state_apply()
 
     async def async_turn_off(self) -> None:
         """Turn off."""
-        old_mode = self._attr_hvac_mode
         self._attr_hvac_mode = HVACMode.OFF
-        try:
-            await self._apply_state()
-        except HomeAssistantError:
-            self._attr_hvac_mode = old_mode
-            self.async_write_ha_state()
-            raise
+        self._schedule_state_apply()
 
-    async def _apply_state(self) -> None:
-        """Build full state dict, get command, send via provider, update HA state."""
-        try:
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel scheduled command work when entity is removed."""
+        if self._debounce_handle is not None:
+            self._debounce_handle.cancel()
+            self._debounce_handle = None
+        if self._send_worker_task is not None:
+            self._send_worker_task.cancel()
+            self._send_worker_task = None
+
+    def _build_state_dict(self, *, sync_power_sensor: bool = True) -> dict[str, Any]:
+        """Build a normalized desired state dictionary for engine resolution."""
+        if sync_power_sensor:
             self._sync_hvac_from_power_sensor()
 
-            target_temp = max(self._attr_min_temp, min(self._attr_target_temperature, self._attr_max_temp))
-            self._attr_target_temperature = target_temp
+        target_temp = max(self._attr_min_temp, min(self._attr_target_temperature, self._attr_max_temp))
+        self._attr_target_temperature = target_temp
 
-            # Build state dictionary for engine
-            state_dict = {
-                "power": self._attr_hvac_mode != HVACMode.OFF,
-                "hvac_mode": self._attr_hvac_mode.value if self._attr_hvac_mode != HVACMode.OFF else "off",
-                "target_temperature": int(round(self._attr_target_temperature)),
-            }
+        state_dict: dict[str, Any] = {
+            "power": self._attr_hvac_mode != HVACMode.OFF,
+            "hvac_mode": self._attr_hvac_mode.value if self._attr_hvac_mode != HVACMode.OFF else "off",
+            "target_temperature": int(round(self._attr_target_temperature)),
+        }
 
-            # Add optional state if supported
-            if self._pack.capabilities.fan_modes and self._attr_fan_mode:
-                state_dict["fan_mode"] = self._attr_fan_mode
-            elif self._pack.capabilities.fan_modes:
-                state_dict["fan_mode"] = self._pack.capabilities.fan_modes[0]
+        if self._pack.capabilities.fan_modes and self._attr_fan_mode:
+            state_dict["fan_mode"] = self._attr_fan_mode
+        elif self._pack.capabilities.fan_modes:
+            state_dict["fan_mode"] = self._pack.capabilities.fan_modes[0]
 
-            if self._pack.capabilities.swing_vertical_modes and self._attr_swing_mode:
-                state_dict["swing_vertical"] = self._attr_swing_mode
-            elif self._pack.capabilities.swing_vertical_modes:
-                state_dict["swing_vertical"] = self._pack.capabilities.swing_vertical_modes[0]
+        if self._pack.capabilities.swing_vertical_modes and self._attr_swing_mode:
+            state_dict["swing_vertical"] = self._attr_swing_mode
+        elif self._pack.capabilities.swing_vertical_modes:
+            state_dict["swing_vertical"] = self._pack.capabilities.swing_vertical_modes[0]
 
-            if self._pack.capabilities.swing_horizontal_modes and self._attr_swing_horizontal_mode:
-                state_dict["swing_horizontal"] = self._attr_swing_horizontal_mode
-            elif self._pack.capabilities.swing_horizontal_modes:
-                state_dict["swing_horizontal"] = self._pack.capabilities.swing_horizontal_modes[0]
+        if self._pack.capabilities.swing_horizontal_modes and self._attr_swing_horizontal_mode:
+            state_dict["swing_horizontal"] = self._attr_swing_horizontal_mode
+        elif self._pack.capabilities.swing_horizontal_modes:
+            state_dict["swing_horizontal"] = self._pack.capabilities.swing_horizontal_modes[0]
+
+        return state_dict
+
+    def _schedule_state_apply(self) -> None:
+        """Coalesce rapid UI mutations and enqueue only latest desired state."""
+        self._pending_state = self._build_state_dict()
+        self.async_write_ha_state()
+
+        if self._debounce_handle is not None:
+            self._debounce_handle.cancel()
+
+        loop = asyncio.get_running_loop()
+        self._debounce_handle = loop.call_later(
+            self._command_debounce_seconds,
+            self._start_send_worker,
+        )
+
+    def _start_send_worker(self) -> None:
+        """Start a single worker to flush latest desired state."""
+        self._debounce_handle = None
+        if self._send_worker_task is not None and not self._send_worker_task.done():
+            return
+        self._send_worker_task = asyncio.create_task(self._async_send_worker())
+
+    async def _async_send_worker(self) -> None:
+        """Send pipeline with latest-state-wins semantics."""
+        try:
+            while self._pending_state is not None:
+                state_dict = self._pending_state
+                self._pending_state = None
+                await self._send_state_if_needed(state_dict)
+        finally:
+            self._send_worker_task = None
+
+    async def _send_state_if_needed(self, state_dict: dict[str, Any]) -> None:
+        """Resolve and send only if state or payload effectively changed."""
+        try:
+            if state_dict == self._last_sent_state:
+                _LOGGER.debug("Skipping command send; desired state unchanged")
+                return
 
             _LOGGER.debug("Applying state: %s", state_dict)
-
-            # Resolve command
             command = self._engine.resolve_command(state_dict)
+            payload_hash = hashlib.sha256(command.encode("ascii")).hexdigest()[:12]
 
-            # Send command
+            if payload_hash == self._last_sent_payload_hash:
+                _LOGGER.debug("Skipping command send; payload hash unchanged (%s)", payload_hash)
+                self._last_sent_state = dict(state_dict)
+                return
+
             await self._provider.send_base64(command)
 
+            self._last_sent_state = dict(state_dict)
+            self._last_sent_payload_hash = payload_hash
+            self._last_send_error = None
+
             async_clear_command_failure(self._hass, self._entry)
-
             self._sync_hvac_from_power_sensor()
-
-            # Update Home Assistant state
             self.async_write_ha_state()
 
             _LOGGER.info(
@@ -462,16 +508,21 @@ class AeroStateClimate(ClimateEntity):
                 self._attr_hvac_mode,
                 self._attr_target_temperature,
             )
-
         except Exception as err:
+            self._last_send_error = str(err)
             _LOGGER.warning(
                 "Command resolution/send failed for pack %s and state %s: %s",
                 self._pack.pack_id,
-                state_dict if "state_dict" in locals() else {},
+                state_dict,
                 err,
             )
+            _LOGGER.warning(
+                "AeroState desired state is not yet confirmed on device. desired=%s last_sent=%s",
+                state_dict,
+                self._last_sent_state,
+            )
             async_report_command_failure(self._hass, self._entry)
-            raise HomeAssistantError(f"Failed to apply AC state: {err}") from err
+            self.async_write_ha_state()
 
 
 async def async_setup_entry(

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
@@ -27,6 +29,7 @@ class BroadlinkProvider:
         """
         self._hass = hass
         self._remote_entity_id = remote_entity_id
+        self._send_lock = asyncio.Lock()
 
     async def send_base64(self, payload: str) -> None:
         """Send a base64 IR payload to the Broadlink remote.
@@ -37,34 +40,49 @@ class BroadlinkProvider:
         Raises:
             HomeAssistantError: If the service call fails
         """
+        payload_hash = hashlib.md5(payload.encode()).hexdigest()[:8]
+        enqueue_ts = time.monotonic()
+
         try:
-            payload_hash = hashlib.md5(payload.encode()).hexdigest()[:8]
-            _LOGGER.debug(
-                "Sending IR command to %s (payload hash: %s)",
-                self._remote_entity_id,
-                payload_hash,
-            )
+            async with self._send_lock:
+                send_start = time.monotonic()
+                queued_ms = (send_start - enqueue_ts) * 1000
 
-            # Broadlink remote.send_command accepts a b64-prefixed command payload.
-            await self._hass.services.async_call(
-                "remote",
-                "send_command",
-                {
-                    "entity_id": self._remote_entity_id,
-                    "command": f"b64:{payload}",
-                },
-                blocking=True,
-            )
+                _LOGGER.debug(
+                    "Broadlink send start entity=%s payload_hash=%s queued_ms=%.1f",
+                    self._remote_entity_id,
+                    payload_hash,
+                    queued_ms,
+                )
 
-            _LOGGER.debug(
-                "Successfully sent IR command to %s",
-                self._remote_entity_id,
-            )
+                # Broadlink remote.send_command accepts a b64-prefixed command payload.
+                await self._hass.services.async_call(
+                    "remote",
+                    "send_command",
+                    {
+                        "entity_id": self._remote_entity_id,
+                        "command": f"b64:{payload}",
+                    },
+                    blocking=True,
+                )
+
+                send_finish = time.monotonic()
+                send_ms = (send_finish - send_start) * 1000
+                total_ms = (send_finish - enqueue_ts) * 1000
+
+                _LOGGER.debug(
+                    "Broadlink send finish entity=%s payload_hash=%s send_ms=%.1f total_ms=%.1f",
+                    self._remote_entity_id,
+                    payload_hash,
+                    send_ms,
+                    total_ms,
+                )
 
         except Exception as err:
             _LOGGER.exception(
-                "Failed to send IR command to %s",
+                "Failed to send IR command entity=%s payload_hash=%s",
                 self._remote_entity_id,
+                payload_hash,
             )
             raise HomeAssistantError(
                 f"Failed to send IR command via {self._remote_entity_id}: {err}"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 pytest.importorskip("homeassistant")
@@ -13,12 +15,20 @@ class _FakeServices:
     def __init__(self, available: bool = True) -> None:
         self.calls: list[tuple[str, str, dict, bool]] = []
         self._available = available
+        self._active_calls = 0
+        self.max_concurrent_calls = 0
+        self.call_delay = 0.0
 
     def has_service(self, domain: str, service: str) -> bool:
         return self._available and domain == "remote" and service == "send_command"
 
     async def async_call(self, domain: str, service: str, data: dict, blocking: bool = False) -> None:
+        self._active_calls += 1
+        self.max_concurrent_calls = max(self.max_concurrent_calls, self._active_calls)
+        if self.call_delay:
+            await asyncio.sleep(self.call_delay)
         self.calls.append((domain, service, data, blocking))
+        self._active_calls -= 1
 
 
 class _FakeStates:
@@ -90,3 +100,19 @@ async def test_test_connection_fails_when_entity_unavailable() -> None:
 
     ok = await provider.test_connection()
     assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_send_base64_serializes_concurrent_calls() -> None:
+    hass = _FakeHass()
+    hass.services.call_delay = 0.03
+    provider = BroadlinkProvider(hass, "remote.test")
+
+    await asyncio.gather(
+        provider.send_base64("A"),
+        provider.send_base64("B"),
+        provider.send_base64("C"),
+    )
+
+    assert len(hass.services.calls) == 3
+    assert hass.services.max_concurrent_calls == 1
