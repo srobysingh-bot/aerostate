@@ -16,11 +16,11 @@ def _pack() -> ModelPack:
         pack_version=1,
         models=["TEST"],
         transport="broadlink_base64",
-        min_temperature=18,
+        min_temperature=16,
         max_temperature=30,
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
-            fan_modes=["auto", "low", "mid", "high"],
+            fan_modes=["auto", "low", "mid", "high", "highest"],
             swing_vertical_modes=["off", "on"],
             swing_horizontal_modes=["off", "on"],
             presets=[],
@@ -40,11 +40,11 @@ def _advanced_pack() -> ModelPack:
         pack_version=1,
         models=["TEST"],
         transport="broadlink_base64",
-        min_temperature=18,
+        min_temperature=16,
         max_temperature=30,
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
-            fan_modes=["auto", "low", "mid", "high"],
+            fan_modes=["auto", "low", "mid", "high", "highest"],
             swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
             swing_horizontal_modes=["off", "swing", "left", "center", "right"],
             presets=["none", "jet"],
@@ -246,3 +246,84 @@ def test_lg_protocol_engine_encodes_real_advanced_vertical_positions() -> None:
     )
 
     assert highest != lowest
+
+
+def test_lg_protocol_engine_generates_distinct_payloads_for_16_17_and_30() -> None:
+    engine = LGProtocolEngine(_pack())
+
+    temp_16 = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 16,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+        }
+    )
+    temp_17 = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 17,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+        }
+    )
+    temp_30 = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 30,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+        }
+    )
+
+    assert temp_16 != temp_17
+    assert temp_17 != temp_30
+
+
+def test_lg_protocol_engine_rejects_temperature_below_pack_minimum() -> None:
+    engine = LGProtocolEngine(_pack())
+
+    with pytest.raises(ValueError, match="temperature"):
+        engine.resolve_command(
+            {
+                "power": True,
+                "hvac_mode": "cool",
+                "target_temperature": 15,
+                "fan_mode": "auto",
+                "swing_vertical": "off",
+                "swing_horizontal": "off",
+            }
+        )
+
+
+def test_lg_protocol_engine_generates_distinct_payload_for_highest_fan() -> None:
+    engine = LGProtocolEngine(_pack())
+
+    high_payload = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "high",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+        }
+    )
+    highest_payload = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "highest",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+        }
+    )
+
+    assert high_payload != highest_payload

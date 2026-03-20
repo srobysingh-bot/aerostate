@@ -366,6 +366,17 @@ class AeroStateClimate(ClimateEntity):
         """Set target temperature and schedule command apply."""
         if ATTR_TEMPERATURE in kwargs:
             requested = int(round(float(kwargs[ATTR_TEMPERATURE])))
+            if requested < int(self._attr_min_temp) or requested > int(self._attr_max_temp):
+                _LOGGER.warning(
+                    "Rejected out-of-range temperature %s for pack %s. Supported range: %s-%s",
+                    requested,
+                    self._pack.pack_id,
+                    int(self._attr_min_temp),
+                    int(self._attr_max_temp),
+                )
+                raise HomeAssistantError(
+                    f"Temperature {requested} is outside the supported range {int(self._attr_min_temp)}-{int(self._attr_max_temp)}"
+                )
             if self._supported_temperatures and requested not in self._supported_temperatures:
                 _LOGGER.warning(
                     "Rejected unsupported temperature %s for pack %s. Supported temperatures: %s",

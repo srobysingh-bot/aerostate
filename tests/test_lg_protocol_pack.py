@@ -25,6 +25,9 @@ def test_protocol_pack_loads_with_lg_protocol_engine_and_vertical_positions() ->
 
     assert pack.pack_id == "lg.pc09sq_nsj.protocol.v1"
     assert pack.engine_type == "lg_protocol"
+    assert pack.min_temperature == 16
+    assert pack.max_temperature == 30
+    assert pack.capabilities.fan_modes == ["auto", "low", "mid", "high", "highest"]
     assert pack.capabilities.swing_vertical_modes == [
         "off",
         "on",
@@ -49,4 +52,4 @@ def test_protocol_pack_coverage_report_is_complete_for_protocol_engine() -> None
     assert report["issues"] == []
     assert report["swing_vertical_support"] is True
     assert report["swing_horizontal_support"] is True
-    assert report["available_temperature_points"] == list(range(18, 31))
+    assert report["available_temperature_points"] == list(range(16, 31))

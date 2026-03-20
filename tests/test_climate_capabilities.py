@@ -222,11 +222,11 @@ def _protocol_pack() -> ModelPack:
         pack_version=1,
         models=["PC09SQ NSJ"],
         transport="broadlink_base64",
-        min_temperature=18,
+        min_temperature=16,
         max_temperature=30,
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
-            fan_modes=["auto", "low", "mid", "high"],
+            fan_modes=["auto", "low", "mid", "high", "highest"],
             swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
             swing_horizontal_modes=["off", "swing", "left", "center", "right"],
             presets=["none", "jet"],
@@ -259,6 +259,8 @@ def test_protocol_pack_climate_exposes_binary_swing_axes() -> None:
     assert not (features & ClimateEntityFeature.PRESET_MODE)
     assert climate.swing_modes == ["off", "swing"]
     assert climate.swing_horizontal_modes == ["off", "swing"]
+    assert climate.min_temp == 16
+    assert climate.fan_modes == ["auto", "low", "mid", "high", "highest"]
     assert climate.preset_modes is None
 
 
@@ -282,3 +284,21 @@ def test_protocol_pack_exposes_advanced_swing_and_jet_only_when_engine_supports(
     assert climate.swing_modes == ["off", "swing", "highest", "middle", "lowest"]
     assert climate.swing_horizontal_modes == ["off", "swing", "left", "center", "right"]
     assert climate.preset_modes == ["none", "jet"]
+
+
+@pytest.mark.asyncio
+async def test_protocol_pack_rejects_temperature_below_supported_range() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_protocol_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeCapabilityEngine(
+            vertical=["off", "swing"],
+            horizontal=["off", "swing"],
+            presets=[],
+        ),
+    )
+
+    with pytest.raises(HomeAssistantError, match="outside the supported range"):
+        await climate.async_set_temperature(temperature=15)

@@ -208,7 +208,14 @@ class LGProtocolEngine(StateEngine):
             fan_mode = "auto"
         fan_code = self._FAN_MAP.get(fan_mode, self._FAN_MAP["auto"])
 
-        bounded = max(int(getattr(self._pack, "min_temperature", 16)), min(int(target_temperature), int(getattr(self._pack, "max_temperature", 30))))
+        min_temp = int(getattr(self._pack, "min_temperature", 16))
+        max_temp = int(getattr(self._pack, "max_temperature", 30))
+        if target_temperature < min_temp or target_temperature > max_temp:
+            raise ValueError(
+                f"Unsupported LG protocol temperature {target_temperature}. Supported range: {min_temp}-{max_temp}"
+            )
+
+        bounded = int(target_temperature)
         temp_code = (bounded - 15) << 4
 
         addit = 0x08 if self._last_mode != "off" else 0x00
