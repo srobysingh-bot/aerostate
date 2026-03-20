@@ -129,7 +129,13 @@ def validate_pack_dict(data: dict[str, Any]) -> None:
     if data["transport"] != "broadlink_base64":
         raise ValueError("Only 'broadlink_base64' transport is currently supported")
 
-    engine_type = data.get("engine", {}).get("type", "table")
+    engine_data = data.get("engine", {})
+    if engine_data is None:
+        engine_data = {}
+    if not isinstance(engine_data, dict):
+        raise ValueError("'engine' must be an object when provided")
+
+    engine_type = engine_data.get("type", "table")
     if engine_type not in {"table", "lg_protocol"}:
         raise ValueError(
             f"Unsupported engine type '{engine_type}'. Supported: table, lg_protocol"
@@ -163,7 +169,10 @@ def load_pack_from_path(path: str) -> ModelPack:
     validate_pack_dict(data)
 
     # Parse engine type
-    engine_type = data.get("engine", {}).get("type", "table")
+    engine_data = data.get("engine", {})
+    if engine_data is None:
+        engine_data = {}
+    engine_type = engine_data.get("type", "table")
 
     # Create capabilities
     cap_data = data["capabilities"]
