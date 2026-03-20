@@ -20,7 +20,7 @@ def _pack() -> ModelPack:
         max_temperature=30,
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
-            fan_modes=["auto", "low", "mid", "high", "highest"],
+            fan_modes=["auto", "f1", "f2", "f3", "f4", "f5"],
             swing_vertical_modes=["off", "on"],
             swing_horizontal_modes=["off", "on"],
             presets=[],
@@ -44,7 +44,7 @@ def _advanced_pack() -> ModelPack:
         max_temperature=30,
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
-            fan_modes=["auto", "low", "mid", "high", "highest"],
+            fan_modes=["auto", "f1", "f2", "f3", "f4", "f5"],
             swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
             swing_horizontal_modes=["off", "swing", "left", "center", "right"],
             presets=["none", "jet"],
@@ -302,28 +302,46 @@ def test_lg_protocol_engine_rejects_temperature_below_pack_minimum() -> None:
         )
 
 
-def test_lg_protocol_engine_generates_distinct_payload_for_highest_fan() -> None:
+def test_lg_protocol_engine_encodes_all_real_fan_levels_distinctly() -> None:
     engine = LGProtocolEngine(_pack())
 
-    high_payload = engine.resolve_command(
-        {
-            "power": True,
-            "hvac_mode": "cool",
-            "target_temperature": 24,
-            "fan_mode": "high",
-            "swing_vertical": "off",
-            "swing_horizontal": "off",
-        }
-    )
-    highest_payload = engine.resolve_command(
-        {
-            "power": True,
-            "hvac_mode": "cool",
-            "target_temperature": 24,
-            "fan_mode": "highest",
-            "swing_vertical": "off",
-            "swing_horizontal": "off",
-        }
-    )
+    expected_low_nibbles = {
+        "auto": 0x05,
+        "f1": 0x00,
+        "f2": 0x09,
+        "f3": 0x02,
+        "f4": 0x0A,
+        "f5": 0x04,
+    }
+    payloads: dict[str, str] = {}
 
-    assert high_payload != highest_payload
+    for fan_mode, expected_nibble in expected_low_nibbles.items():
+        frame = engine._build_main_frame(mode="cool", target_temperature=24, fan_mode=fan_mode)
+        assert frame[2] & 0x0F == expected_nibble
+
+        payloads[fan_mode] = engine.resolve_command(
+            {
+                "power": True,
+                "hvac_mode": "cool",
+                "target_temperature": 24,
+                "fan_mode": fan_mode,
+                "swing_vertical": "off",
+                "swing_horizontal": "off",
+            }
+        )
+
+    assert len(set(payloads.values())) == len(expected_low_nibbles)
+
+
+def test_lg_protocol_engine_keeps_legacy_fan_aliases_internal_only() -> None:
+    engine = LGProtocolEngine(_pack())
+
+    expected = {
+        "lowest": "f1",
+        "low": "f2",
+        "mid": "f3",
+        "high": "f4",
+        "highest": "f5",
+    }
+    for legacy, canonical in expected.items():
+        assert engine._normalize_fan_mode(legacy) == canonical

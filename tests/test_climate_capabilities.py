@@ -226,7 +226,7 @@ def _protocol_pack() -> ModelPack:
         max_temperature=30,
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
-            fan_modes=["auto", "low", "mid", "high", "highest"],
+            fan_modes=["auto", "f1", "f2", "f3", "f4", "f5"],
             swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
             swing_horizontal_modes=["off", "swing", "left", "center", "right"],
             presets=["none", "jet"],
@@ -260,8 +260,26 @@ def test_protocol_pack_climate_exposes_binary_swing_axes() -> None:
     assert climate.swing_modes == ["off", "swing"]
     assert climate.swing_horizontal_modes == ["off", "swing"]
     assert climate.min_temp == 16
-    assert climate.fan_modes == ["auto", "low", "mid", "high", "highest"]
+    assert climate.fan_modes == ["auto", "f1", "f2", "f3", "f4", "f5"]
     assert climate.preset_modes is None
+
+
+@pytest.mark.asyncio
+async def test_protocol_pack_accepts_uppercase_fan_mode_alias_input() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_protocol_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeCapabilityEngine(
+            vertical=["off", "swing"],
+            horizontal=["off", "swing"],
+            presets=[],
+        ),
+    )
+
+    await climate.async_set_fan_mode("F1")
+    assert climate.fan_mode == "f1"
 
 
 def test_protocol_pack_exposes_advanced_swing_and_jet_only_when_engine_supports() -> None:

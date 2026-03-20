@@ -27,7 +27,7 @@ def test_protocol_pack_loads_with_lg_protocol_engine_and_vertical_positions() ->
     assert pack.engine_type == "lg_protocol"
     assert pack.min_temperature == 16
     assert pack.max_temperature == 30
-    assert pack.capabilities.fan_modes == ["auto", "low", "mid", "high", "highest"]
+    assert pack.capabilities.fan_modes == ["auto", "f1", "f2", "f3", "f4", "f5"]
     assert pack.capabilities.swing_vertical_modes == [
         "off",
         "on",

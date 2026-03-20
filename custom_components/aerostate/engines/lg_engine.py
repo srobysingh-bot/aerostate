@@ -30,13 +30,20 @@ class LGProtocolEngine(StateEngine):
         "heat": 0x04,
     }
     _FAN_MAP = {
-        "lowest": 0x00,
-        "low": 0x09,
-        "mid": 0x02,
-        "medium": 0x02,
-        "high": 0x0A,
-        "highest": 0x04,
         "auto": 0x05,
+        "f1": 0x00,
+        "f2": 0x09,
+        "f3": 0x02,
+        "f4": 0x0A,
+        "f5": 0x04,
+    }
+    _FAN_ALIASES = {
+        "lowest": "f1",
+        "low": "f2",
+        "mid": "f3",
+        "medium": "f3",
+        "high": "f4",
+        "highest": "f5",
     }
 
     def __init__(self, pack: object) -> None:
@@ -128,6 +135,7 @@ class LGProtocolEngine(StateEngine):
         if not raw_fan:
             return "auto"
         fan = str(raw_fan).lower()
+        fan = self._FAN_ALIASES.get(fan, fan)
         return fan if fan in self._FAN_MAP else "auto"
 
     def _normalize_swing_mode(self, raw_swing: str | None, supported_modes: set[str], axis: str) -> str:

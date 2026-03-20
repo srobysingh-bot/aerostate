@@ -392,7 +392,8 @@ class AeroStateClimate(ClimateEntity):
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set fan mode and schedule command apply."""
-        if fan_mode not in self._pack.capabilities.fan_modes:
+        normalized_fan_mode = str(fan_mode).lower()
+        if normalized_fan_mode not in self._pack.capabilities.fan_modes:
             _LOGGER.warning(
                 "Rejected fan mode '%s' for pack %s. Supported fan modes: %s",
                 fan_mode,
@@ -401,7 +402,7 @@ class AeroStateClimate(ClimateEntity):
             )
             raise HomeAssistantError(f"Fan mode '{fan_mode}' is not supported by selected pack")
 
-        self._attr_fan_mode = fan_mode
+        self._attr_fan_mode = normalized_fan_mode
         self._schedule_state_apply()
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
