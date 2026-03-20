@@ -130,6 +130,33 @@ def test_lg_protocol_engine_adds_extra_frames_for_swing_changes() -> None:
     assert len(base64.b64decode(swing_payload)) > len(base64.b64decode(base_payload))
 
 
+def test_lg_protocol_engine_generates_distinct_payload_for_horizontal_off_on_toggle() -> None:
+    engine = LGProtocolEngine(_pack())
+
+    horizontal_off = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+        }
+    )
+    horizontal_on = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "on",
+        }
+    )
+
+    assert horizontal_off != horizontal_on
+
+
 def test_lg_protocol_engine_supports_advanced_swing_modes_when_mapped() -> None:
     engine = LGProtocolEngine(_advanced_pack())
 

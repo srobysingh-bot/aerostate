@@ -17,7 +17,7 @@ def _verified_protocol_pack() -> ModelPack:
         max_temperature=30,
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
-            fan_modes=["auto", "low", "mid", "high", "highest"],
+            fan_modes=["auto", "f1", "f2", "f3", "f4", "f5"],
             swing_vertical_modes=["off", "on", "highest"],
             swing_horizontal_modes=["off", "on"],
             presets=[],
@@ -55,7 +55,8 @@ def _verified_cool_only_no_swing_pack() -> ModelPack:
 def test_describe_pack_limitations_for_verified_protocol_pack_is_conservative() -> None:
     limitation = describe_pack_limitations(_verified_protocol_pack())
 
-    assert "Horizontal swing is limited" in limitation
+    assert "toggle form only" in limitation
+    assert "not exposed" in limitation
     assert "Jet/Turbo is disabled" in limitation
 
 

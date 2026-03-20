@@ -63,7 +63,9 @@ def describe_pack_limitations(pack) -> str:
         supports_jet = bool(getattr(pack.capabilities, "supports_jet", False))
 
         if horizontal_modes and all(mode in {"off", "on", "swing", "auto"} for mode in horizontal_modes):
-            limitations.append("Horizontal swing is limited to verified on/off behavior.")
+            limitations.append(
+                "Horizontal swing is supported in toggle form only (off/on). Advanced horizontal positions are intentionally not exposed until model-specific protocol values or captured frames are verified."
+            )
         if not supports_jet:
             limitations.append("Jet/Turbo is disabled until protocol ON/OFF frames are validated.")
 

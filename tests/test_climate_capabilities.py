@@ -228,7 +228,7 @@ def _protocol_pack() -> ModelPack:
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
             fan_modes=["auto", "f1", "f2", "f3", "f4", "f5"],
             swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
-            swing_horizontal_modes=["off", "swing", "left", "center", "right"],
+            swing_horizontal_modes=["off", "on"],
             presets=["none", "jet"],
             preset_modes=["none", "jet"],
             supports_jet=True,
@@ -248,7 +248,7 @@ def test_protocol_pack_climate_exposes_binary_swing_axes() -> None:
         provider=_FakeProvider(),
         engine=_FakeCapabilityEngine(
             vertical=["off", "swing"],
-            horizontal=["off", "swing"],
+            horizontal=["off", "on"],
             presets=[],
         ),
     )
@@ -258,7 +258,7 @@ def test_protocol_pack_climate_exposes_binary_swing_axes() -> None:
     assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
     assert not (features & ClimateEntityFeature.PRESET_MODE)
     assert climate.swing_modes == ["off", "swing"]
-    assert climate.swing_horizontal_modes == ["off", "swing"]
+    assert climate.swing_horizontal_modes == ["off", "on"]
     assert climate.min_temp == 16
     assert climate.fan_modes == ["auto", "f1", "f2", "f3", "f4", "f5"]
     assert climate.preset_modes is None
@@ -273,7 +273,7 @@ async def test_protocol_pack_accepts_uppercase_fan_mode_alias_input() -> None:
         provider=_FakeProvider(),
         engine=_FakeCapabilityEngine(
             vertical=["off", "swing"],
-            horizontal=["off", "swing"],
+            horizontal=["off", "on"],
             presets=[],
         ),
     )
@@ -290,7 +290,7 @@ def test_protocol_pack_exposes_advanced_swing_and_jet_only_when_engine_supports(
         provider=_FakeProvider(),
         engine=_FakeCapabilityEngine(
             vertical=["off", "swing", "highest", "middle", "lowest"],
-            horizontal=["off", "swing", "left", "center", "right"],
+            horizontal=["off", "on"],
             presets=["none", "jet"],
         ),
     )
@@ -300,7 +300,7 @@ def test_protocol_pack_exposes_advanced_swing_and_jet_only_when_engine_supports(
     assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
     assert features & ClimateEntityFeature.PRESET_MODE
     assert climate.swing_modes == ["off", "swing", "highest", "middle", "lowest"]
-    assert climate.swing_horizontal_modes == ["off", "swing", "left", "center", "right"]
+    assert climate.swing_horizontal_modes == ["off", "on"]
     assert climate.preset_modes == ["none", "jet"]
 
 
@@ -313,7 +313,7 @@ async def test_protocol_pack_rejects_temperature_below_supported_range() -> None
         provider=_FakeProvider(),
         engine=_FakeCapabilityEngine(
             vertical=["off", "swing"],
-            horizontal=["off", "swing"],
+            horizontal=["off", "on"],
             presets=[],
         ),
     )

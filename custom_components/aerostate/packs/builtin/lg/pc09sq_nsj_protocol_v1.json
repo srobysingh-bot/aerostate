@@ -10,7 +10,7 @@
   "max_temperature": 30,
   "temperature_step": 1,
   "verified": true,
-  "notes": "Production-verified LG protocol path for PC09SQ NSJ: HVAC auto/heat/cool/dry/fan_only, temperature 16-30, fan auto/f1/f2/f3/f4/f5 (auto is separate from manual F1-F5), and vertical swing positions are validated on real hardware. Horizontal swing is intentionally limited to on/off for verified behavior. Jet/Turbo remains disabled until model-specific ON/OFF frames are validated.",
+  "notes": "Production-verified LG protocol path for PC09SQ NSJ: HVAC auto/heat/cool/dry/fan_only, temperature 16-30, fan auto/f1/f2/f3/f4/f5 (auto is separate from manual F1-F5), and vertical swing positions are validated on real hardware. Horizontal swing is supported in toggle form only (off/on). Advanced horizontal positions are intentionally not exposed until model-specific protocol values or captured frames are verified for this exact model. Jet/Turbo remains disabled until model-specific ON/OFF frames are validated.",
   "physically_verified_modes": [
     "auto",
     "heat",

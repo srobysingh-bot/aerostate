@@ -82,7 +82,7 @@ def _protocol_pack() -> ModelPack:
         max_temperature=30,
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
-            fan_modes=["auto", "low", "mid", "high", "highest"],
+            fan_modes=["auto", "f1", "f2", "f3", "f4", "f5"],
             swing_vertical_modes=["off", "on", "highest"],
             swing_horizontal_modes=["off", "on"],
             presets=[],
@@ -226,5 +226,7 @@ async def test_diagnostics_protocol_support_summary(monkeypatch) -> None:
     assert summary["verified"] is True
     assert summary["physically_verified_hvac_modes"] == ["auto", "heat", "cool", "dry", "fan_only"]
     assert summary["temperature_range"] == [16, 30]
-    assert summary["fan_modes"] == ["auto", "low", "mid", "high", "highest"]
+    assert summary["fan_modes"] == ["auto", "f1", "f2", "f3", "f4", "f5"]
     assert summary["swing_support"]["horizontal_modes"] == ["off", "on"]
+    assert "toggle form only" in summary["limitations"]
+    assert "not exposed" in summary["limitations"]
