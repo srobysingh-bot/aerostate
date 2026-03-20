@@ -44,6 +44,27 @@ class _FakeEngine:
         return "AAA"
 
 
+class _FakeCapabilityEngine(_FakeEngine):
+    def __init__(
+        self,
+        vertical: list[str] | None = None,
+        horizontal: list[str] | None = None,
+        presets: list[str] | None = None,
+    ) -> None:
+        self._vertical = vertical or []
+        self._horizontal = horizontal or []
+        self._presets = presets or []
+
+    def supported_vertical_swing_modes(self) -> list[str]:
+        return list(self._vertical)
+
+    def supported_horizontal_swing_modes(self) -> list[str]:
+        return list(self._horizontal)
+
+    def supported_preset_modes(self) -> list[str]:
+        return list(self._presets)
+
+
 def _cool_only_pack() -> ModelPack:
     return ModelPack(
         pack_id="lg.pc09sq_nsj.v1",
@@ -206,9 +227,11 @@ def _protocol_pack() -> ModelPack:
         capabilities=PackCapabilities(
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
             fan_modes=["auto", "low", "mid", "high"],
-            swing_vertical_modes=["off", "on"],
-            swing_horizontal_modes=["off", "on"],
-            presets=[],
+            swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
+            swing_horizontal_modes=["off", "swing", "left", "center", "right"],
+            presets=["none", "jet"],
+            preset_modes=["none", "jet"],
+            supports_jet=True,
         ),
         engine_type="lg_protocol",
         commands={"off": "protocol_generated"},
@@ -223,11 +246,39 @@ def test_protocol_pack_climate_exposes_binary_swing_axes() -> None:
         entry=_entry(),
         pack=_protocol_pack(),
         provider=_FakeProvider(),
-        engine=_FakeEngine(),
+        engine=_FakeCapabilityEngine(
+            vertical=["off", "swing"],
+            horizontal=["off", "swing"],
+            presets=[],
+        ),
     )
 
     features = climate.supported_features
     assert features & ClimateEntityFeature.SWING_MODE
     assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
-    assert climate.swing_modes == ["off", "on"]
-    assert climate.swing_horizontal_modes == ["off", "on"]
+    assert not (features & ClimateEntityFeature.PRESET_MODE)
+    assert climate.swing_modes == ["off", "swing"]
+    assert climate.swing_horizontal_modes == ["off", "swing"]
+    assert climate.preset_modes is None
+
+
+def test_protocol_pack_exposes_advanced_swing_and_jet_only_when_engine_supports() -> None:
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_protocol_pack(),
+        provider=_FakeProvider(),
+        engine=_FakeCapabilityEngine(
+            vertical=["off", "swing", "highest", "middle", "lowest"],
+            horizontal=["off", "swing", "left", "center", "right"],
+            presets=["none", "jet"],
+        ),
+    )
+
+    features = climate.supported_features
+    assert features & ClimateEntityFeature.SWING_MODE
+    assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
+    assert features & ClimateEntityFeature.PRESET_MODE
+    assert climate.swing_modes == ["off", "swing", "highest", "middle", "lowest"]
+    assert climate.swing_horizontal_modes == ["off", "swing", "left", "center", "right"]
+    assert climate.preset_modes == ["none", "jet"]

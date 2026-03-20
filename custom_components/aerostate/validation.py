@@ -47,31 +47,42 @@ def build_safe_validation_states(pack: object, profile: str = "basic") -> list[t
         use_horizontal = bool(swing_cfg.get("horizontal"))
         swing_vertical_values = list(getattr(pack.capabilities, "swing_vertical_modes", []))
         swing_horizontal_values = list(getattr(pack.capabilities, "swing_horizontal_modes", []))
+        preset_values = list(getattr(pack.capabilities, "preset_modes", []) or getattr(pack.capabilities, "presets", []))
+        preset_candidates = [None]
+        if preset_values:
+            preset_candidates.append(preset_values[0])
+            if profile == "full" and len(preset_values) > 1:
+                preset_candidates.append(preset_values[1])
 
         for fan in fan_candidates:
             for temp in mode_temps:
-                candidate_state: dict[str, Any] = {
-                    "power": True,
-                    "hvac_mode": mode,
-                    "target_temperature": int(temp),
-                }
-                label = f"{mode}_{int(temp)}"
-                if fan is not None:
-                    candidate_state["fan_mode"] = fan
-                    label = f"{mode}_{fan}_{int(temp)}"
+                for preset in preset_candidates:
+                    candidate_state: dict[str, Any] = {
+                        "power": True,
+                        "hvac_mode": mode,
+                        "target_temperature": int(temp),
+                    }
+                    label = f"{mode}_{int(temp)}"
+                    if fan is not None:
+                        candidate_state["fan_mode"] = fan
+                        label = f"{mode}_{fan}_{int(temp)}"
 
-                if use_vertical and swing_vertical_values:
-                    candidate_state["swing_vertical"] = swing_vertical_values[0]
-                    label = f"{label}_sv"
-                if use_horizontal and swing_horizontal_values:
-                    candidate_state["swing_horizontal"] = swing_horizontal_values[0]
-                    label = f"{label}_sh"
+                    if preset is not None:
+                        candidate_state["preset_mode"] = preset
+                        label = f"{label}_{preset}"
 
-                try:
-                    engine.resolve_command(candidate_state)
-                    mode_candidates.append((label, candidate_state))
-                except Exception:
-                    continue
+                    if use_vertical and swing_vertical_values:
+                        candidate_state["swing_vertical"] = swing_vertical_values[0]
+                        label = f"{label}_sv"
+                    if use_horizontal and swing_horizontal_values:
+                        candidate_state["swing_horizontal"] = swing_horizontal_values[0]
+                        label = f"{label}_sh"
+
+                    try:
+                        engine.resolve_command(candidate_state)
+                        mode_candidates.append((label, candidate_state))
+                    except Exception:
+                        continue
 
         if mode_candidates:
             states.append(mode_candidates[0])

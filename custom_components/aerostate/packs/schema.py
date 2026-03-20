@@ -14,7 +14,9 @@ class PackCapabilities:
     fan_modes: list[str]
     swing_vertical_modes: list[str]
     swing_horizontal_modes: list[str]
-    presets: list[str]
+    presets: list[str] = field(default_factory=list)
+    preset_modes: list[str] = field(default_factory=list)
+    supports_jet: bool = False
 
 
 @dataclass

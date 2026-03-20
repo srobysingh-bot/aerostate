@@ -60,6 +60,9 @@ class _TrackingProvider:
 
 
 class _StateEchoEngine:
+    def supported_preset_modes(self) -> list[str]:
+        return []
+
     def resolve_command(self, state: dict) -> str:
         return (
             f"m={state.get('hvac_mode')}"
@@ -67,7 +70,13 @@ class _StateEchoEngine:
             f"|f={state.get('fan_mode')}"
             f"|sv={state.get('swing_vertical')}"
             f"|sh={state.get('swing_horizontal')}"
+            f"|p={state.get('preset_mode')}"
         )
+
+
+class _PresetEchoEngine(_StateEchoEngine):
+    def supported_preset_modes(self) -> list[str]:
+        return ["none", "jet"]
 
 
 def _pack() -> ModelPack:
@@ -90,6 +99,20 @@ def _pack() -> ModelPack:
         commands={"off": "protocol_generated"},
         verified=False,
     )
+
+
+def _pack_with_jet_presets() -> ModelPack:
+    base = _pack()
+    base.capabilities = PackCapabilities(
+        hvac_modes=base.capabilities.hvac_modes,
+        fan_modes=base.capabilities.fan_modes,
+        swing_vertical_modes=base.capabilities.swing_vertical_modes,
+        swing_horizontal_modes=base.capabilities.swing_horizontal_modes,
+        presets=["none", "jet"],
+        preset_modes=["none", "jet"],
+        supports_jet=True,
+    )
+    return base
 
 
 def _entry() -> SimpleNamespace:
@@ -144,7 +167,7 @@ async def test_rapid_mode_temp_fan_changes_collapse_to_final_state() -> None:
     await asyncio.sleep(0.06)
 
     assert len(provider.sent_payloads) == 1
-    assert provider.sent_payloads[0] == "m=cool|t=24|f=high|sv=off|sh=off"
+    assert provider.sent_payloads[0] == "m=cool|t=24|f=high|sv=off|sh=off|p=None"
 
 
 @pytest.mark.asyncio
@@ -223,4 +246,23 @@ async def test_rapid_mixed_updates_with_power_sensor_lag_keep_latest_state_wins(
     await asyncio.sleep(0.06)
 
     assert len(provider.sent_payloads) == 1
-    assert provider.sent_payloads[0] == "m=cool|t=24|f=high|sv=on|sh=off"
+    assert provider.sent_payloads[0] == "m=cool|t=24|f=high|sv=on|sh=off|p=None"
+
+
+@pytest.mark.asyncio
+async def test_async_set_preset_mode_applies_jet_when_supported() -> None:
+    provider = _TrackingProvider(send_delay=0.0)
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_pack_with_jet_presets(),
+        provider=provider,
+        engine=_PresetEchoEngine(),
+    )
+    climate._command_debounce_seconds = 0.01
+
+    await climate.async_set_preset_mode("jet")
+    await asyncio.sleep(0.06)
+
+    assert len(provider.sent_payloads) == 1
+    assert "|p=jet" in provider.sent_payloads[0]

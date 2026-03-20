@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import pytest
 
 from custom_components.aerostate.engines.lg_engine import LGProtocolEngine
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
@@ -23,9 +24,57 @@ def _pack() -> ModelPack:
             swing_vertical_modes=["off", "on"],
             swing_horizontal_modes=["off", "on"],
             presets=[],
+            preset_modes=[],
+            supports_jet=False,
         ),
         engine_type="lg_protocol",
         commands={"off": "protocol_generated"},
+        verified=False,
+    )
+
+
+def _advanced_pack() -> ModelPack:
+    return ModelPack(
+        pack_id="lg.protocol.advanced.v1",
+        brand="LG",
+        pack_version=1,
+        models=["TEST"],
+        transport="broadlink_base64",
+        min_temperature=18,
+        max_temperature=30,
+        capabilities=PackCapabilities(
+            hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
+            fan_modes=["auto", "low", "mid", "high"],
+            swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
+            swing_horizontal_modes=["off", "swing", "left", "center", "right"],
+            presets=["none", "jet"],
+            preset_modes=["none", "jet"],
+            supports_jet=True,
+        ),
+        engine_type="lg_protocol",
+        commands={
+            "off": "protocol_generated",
+            "protocol_features": {
+                "swing_vertical_frames": {
+                    "off": [136, 19, 21],
+                    "swing": [136, 19, 20],
+                    "highest": [136, 19, 24],
+                    "middle": [136, 19, 25],
+                    "lowest": [136, 19, 26],
+                },
+                "swing_horizontal_frames": {
+                    "off": [136, 19, 23],
+                    "swing": [136, 19, 22],
+                    "left": [136, 19, 32],
+                    "center": [136, 19, 33],
+                    "right": [136, 19, 34],
+                },
+                "jet_frames": {
+                    "on": [136, 16, 8],
+                    "off": [136, 16, 9],
+                },
+            },
+        },
         verified=False,
     )
 
@@ -79,3 +128,121 @@ def test_lg_protocol_engine_adds_extra_frames_for_swing_changes() -> None:
     )
 
     assert len(base64.b64decode(swing_payload)) > len(base64.b64decode(base_payload))
+
+
+def test_lg_protocol_engine_supports_advanced_swing_modes_when_mapped() -> None:
+    engine = LGProtocolEngine(_advanced_pack())
+
+    highest = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "highest",
+            "swing_horizontal": "left",
+            "preset_mode": "none",
+        }
+    )
+    lowest = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "lowest",
+            "swing_horizontal": "right",
+            "preset_mode": "none",
+        }
+    )
+
+    assert highest != lowest
+
+
+def test_lg_protocol_engine_jet_preset_changes_payload_when_mapped() -> None:
+    engine = LGProtocolEngine(_advanced_pack())
+
+    jet_on = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+            "preset_mode": "jet",
+        }
+    )
+    jet_off = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+            "preset_mode": "none",
+        }
+    )
+
+    assert jet_on != jet_off
+
+
+def test_lg_protocol_engine_rejects_unencodable_advanced_horizontal_swing() -> None:
+    engine = LGProtocolEngine(_pack())
+
+    with pytest.raises(ValueError, match="horizontal swing mode"):
+        engine.resolve_command(
+            {
+                "power": True,
+                "hvac_mode": "cool",
+                "target_temperature": 24,
+                "fan_mode": "auto",
+                "swing_vertical": "off",
+                "swing_horizontal": "left",
+            }
+        )
+
+
+def test_lg_protocol_engine_rejects_jet_when_not_configured() -> None:
+    engine = LGProtocolEngine(_pack())
+
+    with pytest.raises(ValueError, match="preset mode"):
+        engine.resolve_command(
+            {
+                "power": True,
+                "hvac_mode": "cool",
+                "target_temperature": 24,
+                "fan_mode": "auto",
+                "swing_vertical": "off",
+                "swing_horizontal": "off",
+                "preset_mode": "jet",
+            }
+        )
+
+
+def test_lg_protocol_engine_encodes_real_advanced_vertical_positions() -> None:
+    engine = LGProtocolEngine(_pack())
+
+    highest = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "highest",
+            "swing_horizontal": "off",
+        }
+    )
+    lowest = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "lowest",
+            "swing_horizontal": "off",
+        }
+    )
+
+    assert highest != lowest

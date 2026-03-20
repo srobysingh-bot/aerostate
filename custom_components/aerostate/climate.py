@@ -11,6 +11,7 @@ from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
+    PRESET_NONE,
 )
 from homeassistant.const import (
     ATTR_TEMPERATURE,
@@ -80,15 +81,32 @@ class AeroStateClimate(ClimateEntity):
         self._attr_fan_mode = (
             pack.capabilities.fan_modes[0] if pack.capabilities.fan_modes else None
         )
+        declared_vertical = list(pack.capabilities.swing_vertical_modes)
+        declared_horizontal = list(pack.capabilities.swing_horizontal_modes)
+        declared_presets = list(getattr(pack.capabilities, "preset_modes", []) or pack.capabilities.presets)
+
+        engine_vertical = list(getattr(engine, "supported_vertical_swing_modes", lambda: declared_vertical)())
+        engine_horizontal = list(getattr(engine, "supported_horizontal_swing_modes", lambda: declared_horizontal)())
+        engine_presets = list(getattr(engine, "supported_preset_modes", lambda: declared_presets)())
+
+        self._supported_swing_vertical_modes = [mode for mode in declared_vertical if mode in engine_vertical]
+        self._supported_swing_horizontal_modes = [mode for mode in declared_horizontal if mode in engine_horizontal]
+        self._supported_preset_modes = [mode for mode in declared_presets if mode in engine_presets]
+
         self._attr_swing_mode = (
-            pack.capabilities.swing_vertical_modes[0]
-            if pack.capabilities.swing_vertical_modes
+            self._supported_swing_vertical_modes[0]
+            if self._supported_swing_vertical_modes
             else None
         )
         self._attr_swing_horizontal_mode = (
-            pack.capabilities.swing_horizontal_modes[0]
-            if pack.capabilities.swing_horizontal_modes
+            self._supported_swing_horizontal_modes[0]
+            if self._supported_swing_horizontal_modes
             else None
+        )
+        self._attr_preset_mode = (
+            PRESET_NONE
+            if PRESET_NONE in self._supported_preset_modes
+            else (self._supported_preset_modes[0] if self._supported_preset_modes else None)
         )
         self._attr_current_temperature = None
         self._attr_current_humidity = None
@@ -201,11 +219,14 @@ class AeroStateClimate(ClimateEntity):
         if self._pack.capabilities.fan_modes:
             features |= ClimateEntityFeature.FAN_MODE
 
-        if self._pack.capabilities.swing_vertical_modes:
+        if self._supported_swing_vertical_modes:
             features |= ClimateEntityFeature.SWING_MODE
 
-        if self._pack.capabilities.swing_horizontal_modes:
+        if self._supported_swing_horizontal_modes:
             features |= ClimateEntityFeature.SWING_HORIZONTAL_MODE
+
+        if self._supported_preset_modes:
+            features |= ClimateEntityFeature.PRESET_MODE
 
         return features
 
@@ -236,16 +257,28 @@ class AeroStateClimate(ClimateEntity):
     @property
     def swing_modes(self) -> list[str] | None:
         """Return list of available vertical swing modes."""
-        if self._pack.capabilities.swing_vertical_modes:
-            return list(self._pack.capabilities.swing_vertical_modes)
+        if self._supported_swing_vertical_modes:
+            return list(self._supported_swing_vertical_modes)
         return None
 
     @property
     def swing_horizontal_modes(self) -> list[str] | None:
         """Return list of available horizontal swing modes."""
-        if self._pack.capabilities.swing_horizontal_modes:
-            return list(self._pack.capabilities.swing_horizontal_modes)
+        if self._supported_swing_horizontal_modes:
+            return list(self._supported_swing_horizontal_modes)
         return None
+
+    @property
+    def preset_modes(self) -> list[str] | None:
+        """Return list of available preset modes when supported."""
+        if self._supported_preset_modes:
+            return list(self._supported_preset_modes)
+        return None
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Return the selected preset mode."""
+        return self._attr_preset_mode
 
     @property
     def current_temperature(self) -> float | None:
@@ -362,12 +395,12 @@ class AeroStateClimate(ClimateEntity):
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         """Set vertical swing and schedule command apply."""
-        if swing_mode not in self._pack.capabilities.swing_vertical_modes:
+        if swing_mode not in self._supported_swing_vertical_modes:
             _LOGGER.warning(
                 "Rejected vertical swing mode '%s' for pack %s. Supported vertical swing modes: %s",
                 swing_mode,
                 self._pack.pack_id,
-                self._pack.capabilities.swing_vertical_modes,
+                self._supported_swing_vertical_modes,
             )
             raise HomeAssistantError(
                 f"Vertical swing mode '{swing_mode}' is not supported by selected pack"
@@ -380,12 +413,12 @@ class AeroStateClimate(ClimateEntity):
         self, swing_horizontal_mode: str
     ) -> None:
         """Set horizontal swing and schedule command apply."""
-        if swing_horizontal_mode not in self._pack.capabilities.swing_horizontal_modes:
+        if swing_horizontal_mode not in self._supported_swing_horizontal_modes:
             _LOGGER.warning(
                 "Rejected horizontal swing mode '%s' for pack %s. Supported horizontal swing modes: %s",
                 swing_horizontal_mode,
                 self._pack.pack_id,
-                self._pack.capabilities.swing_horizontal_modes,
+                self._supported_swing_horizontal_modes,
             )
             raise HomeAssistantError(
                 f"Horizontal swing mode '{swing_horizontal_mode}' is not supported by selected pack"
@@ -404,6 +437,22 @@ class AeroStateClimate(ClimateEntity):
     async def async_turn_off(self) -> None:
         """Turn off."""
         self._attr_hvac_mode = HVACMode.OFF
+        self._schedule_state_apply()
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set preset mode and schedule command apply."""
+        if preset_mode not in self._supported_preset_modes:
+            _LOGGER.warning(
+                "Rejected preset mode '%s' for pack %s. Supported preset modes: %s",
+                preset_mode,
+                self._pack.pack_id,
+                self._supported_preset_modes,
+            )
+            raise HomeAssistantError(
+                f"Preset mode '{preset_mode}' is not supported by selected pack"
+            )
+
+        self._attr_preset_mode = preset_mode
         self._schedule_state_apply()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -434,15 +483,20 @@ class AeroStateClimate(ClimateEntity):
         elif self._pack.capabilities.fan_modes:
             state_dict["fan_mode"] = self._pack.capabilities.fan_modes[0]
 
-        if self._pack.capabilities.swing_vertical_modes and self._attr_swing_mode:
+        if self._supported_swing_vertical_modes and self._attr_swing_mode:
             state_dict["swing_vertical"] = self._attr_swing_mode
-        elif self._pack.capabilities.swing_vertical_modes:
-            state_dict["swing_vertical"] = self._pack.capabilities.swing_vertical_modes[0]
+        elif self._supported_swing_vertical_modes:
+            state_dict["swing_vertical"] = self._supported_swing_vertical_modes[0]
 
-        if self._pack.capabilities.swing_horizontal_modes and self._attr_swing_horizontal_mode:
+        if self._supported_swing_horizontal_modes and self._attr_swing_horizontal_mode:
             state_dict["swing_horizontal"] = self._attr_swing_horizontal_mode
-        elif self._pack.capabilities.swing_horizontal_modes:
-            state_dict["swing_horizontal"] = self._pack.capabilities.swing_horizontal_modes[0]
+        elif self._supported_swing_horizontal_modes:
+            state_dict["swing_horizontal"] = self._supported_swing_horizontal_modes[0]
+
+        if self._supported_preset_modes and self._attr_preset_mode:
+            state_dict["preset_mode"] = self._attr_preset_mode
+        elif self._supported_preset_modes:
+            state_dict["preset_mode"] = PRESET_NONE if PRESET_NONE in self._supported_preset_modes else self._supported_preset_modes[0]
 
         return state_dict
 

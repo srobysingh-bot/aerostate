@@ -104,6 +104,16 @@ def validate_pack_dict(data: dict[str, Any]) -> None:
     for key in cap_required:
         _ensure_list_of_strings(cap_data[key], f"capabilities.{key}")
 
+    if "preset_modes" in cap_data:
+        _ensure_list_of_strings(cap_data["preset_modes"], "capabilities.preset_modes")
+
+    supports_jet = cap_data.get("supports_jet", False)
+    if not isinstance(supports_jet, bool):
+        raise ValueError("'capabilities.supports_jet' must be a boolean when provided")
+    declared_presets = cap_data.get("preset_modes", cap_data["presets"])
+    if supports_jet and "jet" not in declared_presets:
+        raise ValueError("'capabilities.supports_jet' requires 'jet' in preset_modes/presets")
+
     if "off" in cap_data["hvac_modes"]:
         raise ValueError("capabilities.hvac_modes must not contain 'off'; OFF is managed by ClimateEntity")
 
@@ -163,6 +173,8 @@ def load_pack_from_path(path: str) -> ModelPack:
         swing_vertical_modes=cap_data["swing_vertical_modes"],
         swing_horizontal_modes=cap_data["swing_horizontal_modes"],
         presets=cap_data["presets"],
+        preset_modes=cap_data.get("preset_modes", cap_data["presets"]),
+        supports_jet=bool(cap_data.get("supports_jet", "jet" in cap_data.get("preset_modes", cap_data["presets"]))),
     )
 
     # Create and return pack

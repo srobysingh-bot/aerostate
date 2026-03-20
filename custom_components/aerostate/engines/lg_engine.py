@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
+from typing import Any
 
 from .base import StateEngine
 
@@ -42,6 +44,79 @@ class LGProtocolEngine(StateEngine):
         self._last_mode = "off"
         self._last_swing_vertical = "off"
         self._last_swing_horizontal = "off"
+        self._last_jet = False
+        self._last_main_signature: tuple[str, int, str] | None = None
+
+    @staticmethod
+    def _valid_frame(frame: Any) -> bool:
+        return (
+            isinstance(frame, list)
+            and len(frame) == 3
+            and all(isinstance(part, int) and 0 <= part <= 0xFF for part in frame)
+        )
+
+    def _protocol_features(self) -> dict[str, Any]:
+        commands = getattr(self._pack, "commands", {})
+        features = commands.get("protocol_features", {}) if isinstance(commands, dict) else {}
+        return features if isinstance(features, dict) else {}
+
+    def _feature_frame_map(self, key: str, defaults: dict[str, list[int]]) -> dict[str, list[int]]:
+        features = self._protocol_features()
+        raw = features.get(key, {}) if isinstance(features, dict) else {}
+        merged: dict[str, list[int]] = dict(defaults)
+
+        if isinstance(raw, dict):
+            for mode, frame in raw.items():
+                if isinstance(mode, str) and self._valid_frame(frame):
+                    merged[mode.lower()] = list(frame)
+
+        return merged
+
+    def _jet_frame_map(self) -> dict[str, list[int]]:
+        features = self._protocol_features()
+        raw = features.get("jet_frames", {}) if isinstance(features, dict) else {}
+        out: dict[str, list[int]] = {}
+        if isinstance(raw, dict):
+            for mode, frame in raw.items():
+                if isinstance(mode, str) and self._valid_frame(frame):
+                    out[mode.lower()] = list(frame)
+        return out
+
+    def supported_vertical_swing_modes(self) -> list[str]:
+        frame_map = self._feature_frame_map(
+            "swing_vertical_frames",
+            {
+                "lowest": [0x88, 0x13, 0x04],
+                "low": [0x88, 0x13, 0x05],
+                "middle": [0x88, 0x13, 0x06],
+                "high": [0x88, 0x13, 0x08],
+                "highest": [0x88, 0x13, 0x09],
+                "off": [0x88, 0x13, 0x15],
+                "on": [0x88, 0x13, 0x14],
+                "swing": [0x88, 0x13, 0x14],
+                "auto": [0x88, 0x13, 0x14],
+            },
+        )
+        return sorted(frame_map.keys())
+
+    def supported_horizontal_swing_modes(self) -> list[str]:
+        frame_map = self._feature_frame_map(
+            "swing_horizontal_frames",
+            {
+                "off": [0x88, 0x13, 0x17],
+                "on": [0x88, 0x13, 0x16],
+                "swing": [0x88, 0x13, 0x16],
+                "auto": [0x88, 0x13, 0x16],
+            },
+        )
+        return sorted(frame_map.keys())
+
+    def supported_preset_modes(self) -> list[str]:
+        jet_frames = self._jet_frame_map()
+        # Preset support is only safe if both Jet ON and OFF are encodable.
+        if "on" not in jet_frames or "off" not in jet_frames:
+            return []
+        return ["none", "jet"]
 
     def _normalize_hvac_mode(self, raw_mode: str) -> str:
         mode = str(raw_mode or "cool")
@@ -55,13 +130,32 @@ class LGProtocolEngine(StateEngine):
         fan = str(raw_fan).lower()
         return fan if fan in self._FAN_MAP else "auto"
 
-    def _normalize_swing_mode(self, raw_swing: str | None) -> str:
-        if not raw_swing:
-            return "off"
-        swing = str(raw_swing).lower()
-        if swing in {"on", "swing", "auto"}:
-            return "on"
-        return "off"
+    def _normalize_swing_mode(self, raw_swing: str | None, supported_modes: set[str], axis: str) -> str:
+        swing = str(raw_swing or "off").lower()
+        aliases = {
+            "on": ["on", "swing", "auto"],
+            "swing": ["swing", "on", "auto"],
+            "auto": ["auto", "swing", "on"],
+            "off": ["off"],
+        }
+
+        for candidate in aliases.get(swing, [swing]):
+            if candidate in supported_modes:
+                return candidate
+
+        raise ValueError(
+            f"Unsupported LG protocol {axis} swing mode '{swing}'. Supported: {sorted(supported_modes)}"
+        )
+
+    def _normalize_preset_mode(self, raw_preset: str | None, supported_modes: set[str]) -> str:
+        preset = str(raw_preset or "none").lower()
+        if preset in {"off", "normal"}:
+            preset = "none"
+        if preset not in supported_modes:
+            raise ValueError(
+                f"Unsupported LG protocol preset mode '{preset}'. Supported: {sorted(supported_modes)}"
+            )
+        return preset
 
     def _crc_nibble(self, frame3: list[int]) -> int:
         crc = 0
@@ -126,6 +220,8 @@ class LGProtocolEngine(StateEngine):
         power = state.get("power")
         if power is False or state.get("hvac_mode") == "off":
             self._last_mode = "off"
+            self._last_jet = False
+            self._last_main_signature = None
             off_frame = [0x88, 0xC0, 0x05]
             _LOGGER.debug("LGProtocolEngine emitted frames=off_only frame_count=1")
             return self._pulses_to_broadlink_b64(self._frame_to_pulses(off_frame))
@@ -134,23 +230,74 @@ class LGProtocolEngine(StateEngine):
         fan_mode = self._normalize_fan_mode(state.get("fan_mode"))
         target_temperature = int(round(float(state.get("target_temperature", getattr(self._pack, "min_temperature", 24)))))
 
-        vertical = self._normalize_swing_mode(state.get("swing_vertical"))
-        horizontal = self._normalize_swing_mode(state.get("swing_horizontal"))
+        vertical_frames = self._feature_frame_map(
+            "swing_vertical_frames",
+            {
+                "lowest": [0x88, 0x13, 0x04],
+                "low": [0x88, 0x13, 0x05],
+                "middle": [0x88, 0x13, 0x06],
+                "high": [0x88, 0x13, 0x08],
+                "highest": [0x88, 0x13, 0x09],
+                "off": [0x88, 0x13, 0x15],
+                "on": [0x88, 0x13, 0x14],
+                "swing": [0x88, 0x13, 0x14],
+                "auto": [0x88, 0x13, 0x14],
+            },
+        )
+        horizontal_frames = self._feature_frame_map(
+            "swing_horizontal_frames",
+            {
+                "off": [0x88, 0x13, 0x17],
+                "on": [0x88, 0x13, 0x16],
+                "swing": [0x88, 0x13, 0x16],
+                "auto": [0x88, 0x13, 0x16],
+            },
+        )
+        jet_frames = self._jet_frame_map()
+        supported_presets = set(self.supported_preset_modes())
+
+        vertical = self._normalize_swing_mode(
+            state.get("swing_vertical"),
+            set(vertical_frames.keys()),
+            "vertical",
+        )
+        horizontal = self._normalize_swing_mode(
+            state.get("swing_horizontal"),
+            set(horizontal_frames.keys()),
+            "horizontal",
+        )
+        preset_mode = self._normalize_preset_mode(state.get("preset_mode"), supported_presets or {"none"})
+        jet_enabled = preset_mode == "jet"
 
         frames: list[list[int]] = [
             self._build_main_frame(mode=mode, target_temperature=target_temperature, fan_mode=fan_mode)
         ]
         emitted = ["main"]
 
+        main_signature = (mode, target_temperature, fan_mode)
+        main_changed = self._last_main_signature != main_signature
+        self._last_main_signature = main_signature
+
         if vertical != self._last_swing_vertical:
-            frames.append([0x88, 0x13, 0x14 if vertical == "on" else 0x15])
+            frames.append(vertical_frames[vertical])
             self._last_swing_vertical = vertical
             emitted.append("swing_vertical")
 
         if horizontal != self._last_swing_horizontal:
-            frames.append([0x88, 0x13, 0x16 if horizontal == "on" else 0x17])
+            frames.append(horizontal_frames[horizontal])
             self._last_swing_horizontal = horizontal
             emitted.append("swing_horizontal")
+
+        if jet_enabled != self._last_jet:
+            jet_frame_key = "on" if jet_enabled else "off"
+            jet_frame = jet_frames.get(jet_frame_key)
+            if jet_frame is None:
+                raise ValueError(
+                    f"Jet preset transition requires protocol jet '{jet_frame_key}' frame but it is not configured"
+                )
+            frames.append(jet_frame)
+            emitted.append("jet")
+            self._last_jet = jet_enabled
 
         self._last_mode = mode
 
@@ -158,15 +305,22 @@ class LGProtocolEngine(StateEngine):
         for frame in frames:
             pulses.extend(self._frame_to_pulses(frame))
 
+        payload = self._pulses_to_broadlink_b64(pulses)
+        payload_hash = hashlib.sha256(payload.encode("ascii")).hexdigest()[:12]
+
         _LOGGER.debug(
-            "LGProtocolEngine emitted frames=%s frame_count=%s mode=%s fan=%s target=%s swing_v=%s swing_h=%s",
-            "+".join(emitted),
-            len(frames),
+            "LGProtocolEngine normalized mode=%s fan=%s target=%s swing_v=%s swing_h=%s preset=%s jet=%s main_changed=%s emitted=%s frame_count=%s payload_hash=%s",
             mode,
             fan_mode,
             target_temperature,
             vertical,
             horizontal,
+            preset_mode,
+            jet_enabled,
+            main_changed,
+            "+".join(emitted),
+            len(frames),
+            payload_hash,
         )
 
-        return self._pulses_to_broadlink_b64(pulses)
+        return payload

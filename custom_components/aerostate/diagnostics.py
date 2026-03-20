@@ -91,11 +91,20 @@ async def async_get_config_entry_diagnostics(
                 "fan_modes": pack.capabilities.fan_modes if pack else None,
                 "swing_vertical_modes": pack.capabilities.swing_vertical_modes if pack else None,
                 "swing_horizontal_modes": pack.capabilities.swing_horizontal_modes if pack else None,
+                "preset_modes": (getattr(pack.capabilities, "preset_modes", []) or pack.capabilities.presets) if pack else None,
+                "supports_jet": getattr(pack.capabilities, "supports_jet", False) if pack else None,
             },
             "supported_modes": pack.capabilities.hvac_modes if pack else None,
             "supported_fan_modes": pack.capabilities.fan_modes if pack else None,
             "supported_swing_vertical": pack.capabilities.swing_vertical_modes if pack else None,
             "supported_swing_horizontal": pack.capabilities.swing_horizontal_modes if pack else None,
+            "supported_preset_modes": (getattr(pack.capabilities, "preset_modes", []) or pack.capabilities.presets) if pack else None,
+            "jet_supported": getattr(pack.capabilities, "supports_jet", False) if pack else None,
+            "jet_status": (
+                "experimental"
+                if pack and getattr(pack.capabilities, "supports_jet", False) and not pack.verified
+                else ("verified" if pack and getattr(pack.capabilities, "supports_jet", False) else "unsupported")
+            ),
             "linked_temperature_sensor": entry.options.get(CONF_TEMP_SENSOR, entry.data.get(CONF_TEMP_SENSOR)),
             "linked_humidity_sensor": entry.options.get(CONF_HUM_SENSOR, entry.data.get(CONF_HUM_SENSOR)),
             "linked_power_sensor": entry.options.get(CONF_POWER_SENSOR, entry.data.get(CONF_POWER_SENSOR)),

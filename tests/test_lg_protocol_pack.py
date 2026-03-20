@@ -20,13 +20,24 @@ def _protocol_pack_path() -> Path:
     )
 
 
-def test_protocol_pack_loads_with_lg_protocol_engine_and_swing_on_off() -> None:
+def test_protocol_pack_loads_with_lg_protocol_engine_and_vertical_positions() -> None:
     pack = load_pack_from_path(str(_protocol_pack_path()))
 
     assert pack.pack_id == "lg.pc09sq_nsj.protocol.v1"
     assert pack.engine_type == "lg_protocol"
-    assert pack.capabilities.swing_vertical_modes == ["off", "on"]
+    assert pack.capabilities.swing_vertical_modes == [
+        "off",
+        "on",
+        "swing",
+        "highest",
+        "high",
+        "middle",
+        "low",
+        "lowest",
+    ]
     assert pack.capabilities.swing_horizontal_modes == ["off", "on"]
+    assert pack.capabilities.preset_modes == []
+    assert pack.capabilities.supports_jet is False
     assert pack.verified is False
 
 

@@ -70,6 +70,19 @@ def test_loader_accepts_lg_protocol_engine_type(tmp_path) -> None:
     assert pack.engine_type == "lg_protocol"
 
 
+def test_loader_accepts_optional_preset_modes_and_supports_jet(tmp_path) -> None:
+    data = _base_pack_dict()
+    data["capabilities"]["preset_modes"] = ["none", "jet"]
+    data["capabilities"]["supports_jet"] = True
+
+    pack_file = tmp_path / "pack.json"
+    pack_file.write_text(json.dumps(data), encoding="utf-8")
+
+    pack = load_pack_from_path(str(pack_file))
+    assert pack.capabilities.preset_modes == ["none", "jet"]
+    assert pack.capabilities.supports_jet is True
+
+
 def test_loader_rejects_mode_truth_for_unsupported_mode(tmp_path) -> None:
     data = _base_pack_dict()
     data["mode_status"] = {"heat": "experimental"}

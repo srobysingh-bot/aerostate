@@ -10,7 +10,7 @@
   "max_temperature": 30,
   "temperature_step": 1,
   "verified": false,
-  "notes": "Protocol-generated LG control path (no learned matrix required). Vertical and horizontal swing are exposed as on/off and remain experimental until real hardware verification.",
+  "notes": "Protocol-generated LG control path (no learned matrix required). Advanced vertical swing positions are enabled using LG protocol short swing constants. Horizontal remains off/on only because only auto/off horizontal constants are currently available for this model family. Jet/Turbo remains disabled because validated Jet ON/OFF protocol frames are not available for this model.",
   "physically_verified_modes": [],
   "mode_status": {
     "auto": "experimental",
@@ -39,15 +39,44 @@
     ],
     "swing_vertical_modes": [
       "off",
-      "on"
+      "on",
+      "swing",
+      "highest",
+      "high",
+      "middle",
+      "low",
+      "lowest"
     ],
     "swing_horizontal_modes": [
       "off",
       "on"
     ],
-    "presets": []
+    "presets": [],
+    "preset_modes": [],
+    "supports_jet": false
   },
   "commands": {
-    "off": "protocol_generated"
+    "off": "protocol_generated",
+    "protocol_features": {
+      "swing_vertical_frames": {
+        "off": [136, 19, 21],
+        "swing": [136, 19, 20],
+        "auto": [136, 19, 20],
+        "highest": [136, 19, 9],
+        "high": [136, 19, 8],
+        "middle": [136, 19, 6],
+        "low": [136, 19, 5],
+        "lowest": [136, 19, 4],
+        "on": [136, 19, 20],
+        "upper_middle": [136, 19, 7]
+      },
+      "swing_horizontal_frames": {
+        "off": [136, 19, 23],
+        "on": [136, 19, 22],
+        "swing": [136, 19, 22],
+        "auto": [136, 19, 22]
+      },
+      "jet_frames": {}
+    }
   }
 }
