@@ -1,7 +1,7 @@
 {
   "domain": "aerostate",
   "name": "AeroState",
-  "version": "0.1.0-pilot",
+  "version": "1.0.0",
   "documentation": "https://github.com/aerostate-ha/aerostate",
   "issue_tracker": "https://github.com/aerostate-ha/aerostate/issues",
   "config_flow": true,

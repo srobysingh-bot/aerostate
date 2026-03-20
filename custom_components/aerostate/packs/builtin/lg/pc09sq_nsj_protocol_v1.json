@@ -9,15 +9,21 @@
   "min_temperature": 16,
   "max_temperature": 30,
   "temperature_step": 1,
-  "verified": false,
-  "notes": "Protocol-generated LG control path (no learned matrix required). Temperature range is 16-30 and fan includes highest level using protocol encodable values. Advanced vertical swing positions are enabled using LG protocol short swing constants. Horizontal remains off/on only because only auto/off horizontal constants are currently available for this model family. Jet/Turbo remains disabled because validated Jet ON/OFF protocol frames are not available for this model.",
-  "physically_verified_modes": [],
+  "verified": true,
+  "notes": "Production-verified LG protocol path for PC09SQ NSJ: HVAC auto/heat/cool/dry/fan_only, temperature 16-30, fan auto/low/mid/high/highest, and vertical swing positions are validated on real hardware. Horizontal swing is intentionally limited to on/off for verified behavior. Jet/Turbo remains disabled until model-specific ON/OFF frames are validated.",
+  "physically_verified_modes": [
+    "auto",
+    "heat",
+    "cool",
+    "dry",
+    "fan_only"
+  ],
   "mode_status": {
-    "auto": "experimental",
-    "heat": "experimental",
-    "cool": "experimental",
-    "dry": "experimental",
-    "fan_only": "experimental"
+    "auto": "verified",
+    "heat": "verified",
+    "cool": "verified",
+    "dry": "verified",
+    "fan_only": "verified"
   },
   "mvp_test_pack": false,
   "engine": {

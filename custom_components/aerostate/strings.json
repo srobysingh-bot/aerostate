@@ -42,7 +42,7 @@
       },
       "validation_result": {
         "title": "Validation summary",
-        "description": "Status: {status}. Transport OK: {transport_ok}. Validation set available: {set_available}. Attempted: {attempted}. Error: {error}. Pack notes: {pack_notes}. Limitations: {pack_limitations}."
+        "description": "Status: {status}. Transport OK: {transport_ok}. Validation set available: {set_available}. Supported modes: {supported_modes}. Physically verified modes: {physically_verified_modes}. Experimental modes: {experimental_modes}. Attempted: {attempted}. Error: {error}. Pack notes: {pack_notes}. Limitations: {pack_limitations}."
       },
       "confirm": {
         "title": "Confirm setup",
@@ -53,6 +53,7 @@
       "no_remote_entities": "No remote entities are available.",
       "no_packs_available": "No model packs are available.",
       "no_packs_for_brand": "No model packs are available for the selected brand.",
+      "selected_pack_unavailable": "The selected model pack is no longer available.",
       "validation_transport_unavailable": "Broadlink transport is unavailable.",
       "validation_failed": "Validation commands failed. Check logs for details.",
       "already_configured": "This controller and model pack are already configured."
@@ -79,7 +80,8 @@
       }
     },
     "error": {
-      "already_configured": "Another AeroState entry already uses this controller and model pack."
+      "already_configured": "Another AeroState entry already uses this controller and model pack.",
+      "invalid_model_pack": "The selected model pack is unavailable or invalid."
     }
   },
   "issues": {

@@ -71,6 +71,39 @@ def _pack() -> ModelPack:
     )
 
 
+def _protocol_pack() -> ModelPack:
+    return ModelPack(
+        pack_id="lg.protocol.v1",
+        brand="LG",
+        pack_version=1,
+        models=["TEST"],
+        transport="broadlink_base64",
+        min_temperature=16,
+        max_temperature=30,
+        capabilities=PackCapabilities(
+            hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
+            fan_modes=["auto", "low", "mid", "high", "highest"],
+            swing_vertical_modes=["off", "on", "highest"],
+            swing_horizontal_modes=["off", "on"],
+            presets=[],
+            preset_modes=[],
+            supports_jet=False,
+        ),
+        engine_type="lg_protocol",
+        commands={"off": "protocol_generated"},
+        verified=True,
+        notes="Production verified protocol pack",
+        physically_verified_modes=["auto", "heat", "cool", "dry", "fan_only"],
+        mode_status={
+            "auto": "verified",
+            "heat": "verified",
+            "cool": "verified",
+            "dry": "verified",
+            "fan_only": "verified",
+        },
+    )
+
+
 @pytest.mark.asyncio
 async def test_diagnostics_includes_coverage_and_validation(monkeypatch) -> None:
     pack = _pack()
@@ -103,6 +136,9 @@ async def test_diagnostics_includes_coverage_and_validation(monkeypatch) -> None
 
     resolved = result["resolved"]
     assert resolved["pack_id"] == "lg.test.v1"
+    assert resolved["selected_pack_id"] == "lg.test.v1"
+    assert resolved["engine_type"] == "table"
+    assert resolved["protocol_path_active"] is False
     assert resolved["pack_verified"] is True
     assert resolved["pack_mode_truth"]["cool"]["physically_verified"] is True
     assert resolved["physically_verified_modes"] == ["cool"]
@@ -111,9 +147,16 @@ async def test_diagnostics_includes_coverage_and_validation(monkeypatch) -> None
     assert resolved["supported_swing_vertical"] == []
     assert resolved["supported_swing_horizontal"] == []
     assert resolved["broadlink_entity"] == "remote.test"
+    assert resolved["broadlink_entity_state"] is None
     assert resolved["linked_temperature_sensor"] == "sensor.temp"
     assert resolved["validation_readiness"]["transport_available"] is True
     assert "available_temperature_points" in resolved["coverage"]
+    assert resolved["support_summary"]["selected_pack_id"] == "lg.test.v1"
+    assert resolved["support_summary"]["engine_type"] == "table"
+    assert resolved["support_summary"]["protocol_path_active"] is False
+    assert resolved["support_summary"]["verified"] is True
+    assert resolved["support_summary"]["temperature_range"] == [18, 20]
+    assert resolved["support_summary"]["fan_modes"] == ["auto"]
     assert _Provider.send_calls == 0
 
 
@@ -149,3 +192,39 @@ async def test_diagnostics_entity_lookup_via_registry(monkeypatch) -> None:
     assert result["entity"]["entity_id"] == "climate.living_room_ac"
     assert result["entity"]["state"] == "cool"
     assert result["entity"]["attributes"]["fan_mode"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_protocol_support_summary(monkeypatch) -> None:
+    pack = _protocol_pack()
+    hass = _FakeHass()
+    entry = SimpleNamespace(
+        entry_id="entry1",
+        title="Protocol",
+        data={"model_pack": "lg.protocol.v1", "broadlink_entity": "remote.test"},
+        options={},
+    )
+
+    monkeypatch.setattr(diagnostics, "get_registry", lambda: _FakeRegistry(pack))
+    monkeypatch.setattr(diagnostics.er, "async_get", lambda _h: _FakeEntityRegistry())
+
+    class _Provider:
+        def __init__(self, *_):
+            pass
+
+        async def test_connection(self, payload=None):
+            return True
+
+    monkeypatch.setattr(diagnostics, "BroadlinkProvider", _Provider)
+
+    result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
+    summary = result["resolved"]["support_summary"]
+
+    assert summary["selected_pack_id"] == "lg.protocol.v1"
+    assert summary["engine_type"] == "lg_protocol"
+    assert summary["protocol_path_active"] is True
+    assert summary["verified"] is True
+    assert summary["physically_verified_hvac_modes"] == ["auto", "heat", "cool", "dry", "fan_only"]
+    assert summary["temperature_range"] == [16, 30]
+    assert summary["fan_modes"] == ["auto", "low", "mid", "high", "highest"]
+    assert summary["swing_support"]["horizontal_modes"] == ["off", "on"]

@@ -40,6 +40,11 @@ class _FakeRegistry:
         return _pack()
 
 
+class _MissingPackRegistry:
+    def get(self, _pack_id: str) -> ModelPack:
+        raise ValueError("pack missing")
+
+
 class _FakeEntries:
     def __init__(self, entries: list) -> None:
         self._entries = entries
@@ -168,3 +173,35 @@ async def test_confirm_step_includes_pack_notes_and_limitations(monkeypatch) -> 
     placeholders = result["description_placeholders"]
     assert placeholders["pack_notes"] == "Verified cool-only pack. No swing payloads included."
     assert placeholders["pack_limitations"] == "Verified cool-only pack. No swing payloads included."
+
+
+@pytest.mark.asyncio
+async def test_validation_step_handles_missing_selected_pack(monkeypatch) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _minimal_hass()
+    flow._selected_pack_id = "lg.test.v1"
+    flow._broadlink_entity = "remote.test"
+
+    monkeypatch.setattr("custom_components.aerostate.config_flow.get_registry", lambda: _MissingPackRegistry())
+
+    result = await flow.async_step_validation({"run_validation": True})
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "validation_result"
+    assert flow._validation_summary["status"] == "failed"
+    assert flow._validation_summary["error"] == "selected_pack_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_confirm_step_aborts_when_selected_pack_missing(monkeypatch) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _minimal_hass()
+    flow._selected_brand = "LG"
+    flow._selected_pack_id = "lg.test.v1"
+    flow._broadlink_entity = "remote.test"
+
+    monkeypatch.setattr("custom_components.aerostate.config_flow.get_registry", lambda: _MissingPackRegistry())
+
+    result = await flow.async_step_confirm()
+    assert result["type"] == "abort"
+    assert result["reason"] == "selected_pack_unavailable"

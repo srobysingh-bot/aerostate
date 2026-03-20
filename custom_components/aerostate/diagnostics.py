@@ -48,6 +48,7 @@ async def async_get_config_entry_diagnostics(
         CONF_BROADLINK_ENTITY,
         entry.data.get(CONF_BROADLINK_ENTITY),
     )
+    broadlink_state = hass.states.get(broadlink_entity).state if broadlink_entity and hass.states.get(broadlink_entity) else None
 
     coverage = get_pack_coverage_report(pack) if pack else None
     mode_truth = build_mode_truth(pack) if pack else None
@@ -73,9 +74,13 @@ async def async_get_config_entry_diagnostics(
         },
         "resolved": {
             "broadlink_entity": broadlink_entity,
+            "broadlink_entity_state": broadlink_state,
             "pack_id": pack_id,
+            "selected_pack_id": pack_id,
             "pack_brand": pack.brand if pack else None,
             "pack_version": pack.pack_version if pack else None,
+            "engine_type": pack.engine_type if pack else None,
+            "protocol_path_active": bool(pack and pack.engine_type == "lg_protocol"),
             "pack_verified": pack.verified if pack else None,
             "pack_experimental": (not pack.verified) if pack else None,
             "pack_notes": pack.notes if pack else None,
@@ -112,6 +117,28 @@ async def async_get_config_entry_diagnostics(
                 "transport_available": transport_available,
                 "validation_states_ready": validation_states_ready,
                 "ready": transport_available and validation_states_ready,
+            },
+            "support_summary": {
+                "selected_pack_id": pack_id,
+                "engine_type": pack.engine_type if pack else None,
+                "protocol_path_active": bool(pack and pack.engine_type == "lg_protocol"),
+                "verified": pack.verified if pack else None,
+                "physically_verified_hvac_modes": physically_verified_modes,
+                "fan_modes": pack.capabilities.fan_modes if pack else None,
+                "temperature_range": [pack.min_temperature, pack.max_temperature] if pack else None,
+                "swing_support": {
+                    "vertical": bool(pack and pack.capabilities.swing_vertical_modes),
+                    "horizontal": bool(pack and pack.capabilities.swing_horizontal_modes),
+                    "horizontal_modes": pack.capabilities.swing_horizontal_modes if pack else None,
+                },
+                "linked_sensors": {
+                    "temperature": entry.options.get(CONF_TEMP_SENSOR, entry.data.get(CONF_TEMP_SENSOR)),
+                    "humidity": entry.options.get(CONF_HUM_SENSOR, entry.data.get(CONF_HUM_SENSOR)),
+                    "power": entry.options.get(CONF_POWER_SENSOR, entry.data.get(CONF_POWER_SENSOR)),
+                },
+                "broadlink_entity": broadlink_entity,
+                "broadlink_entity_state": broadlink_state,
+                "limitations": describe_pack_limitations(pack) if pack else None,
             },
             "last_self_test": hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("last_self_test"),
             "coverage": coverage,

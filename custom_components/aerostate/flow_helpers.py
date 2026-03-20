@@ -57,8 +57,21 @@ def describe_pack_limitations(pack) -> str:
 
     if pack.verified and cool_only and no_swing:
         return "Verified cool-only pack. No swing payloads included."
+    if pack.engine_type == "lg_protocol":
+        limitations: list[str] = []
+        horizontal_modes = list(getattr(pack.capabilities, "swing_horizontal_modes", []))
+        supports_jet = bool(getattr(pack.capabilities, "supports_jet", False))
+
+        if horizontal_modes and all(mode in {"off", "on", "swing", "auto"} for mode in horizontal_modes):
+            limitations.append("Horizontal swing is limited to verified on/off behavior.")
+        if not supports_jet:
+            limitations.append("Jet/Turbo is disabled until protocol ON/OFF frames are validated.")
+
+        if limitations:
+            return " ".join(limitations)
+
     if pack.engine_type == "lg_protocol" and not pack.verified:
-        return "Experimental protocol-generated LG control. Verify swing behavior on real hardware."
+        return "Experimental protocol-generated LG control. Verify behavior on real hardware."
     if not pack.verified:
         return "Experimental pack. Validate behavior before daily use."
     if no_swing:

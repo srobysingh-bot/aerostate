@@ -41,7 +41,15 @@ def test_protocol_pack_loads_with_lg_protocol_engine_and_vertical_positions() ->
     assert pack.capabilities.swing_horizontal_modes == ["off", "on"]
     assert pack.capabilities.preset_modes == []
     assert pack.capabilities.supports_jet is False
-    assert pack.verified is False
+    assert pack.verified is True
+    assert pack.physically_verified_modes == ["auto", "heat", "cool", "dry", "fan_only"]
+    assert pack.mode_status == {
+        "auto": "verified",
+        "heat": "verified",
+        "cool": "verified",
+        "dry": "verified",
+        "fan_only": "verified",
+    }
 
 
 def test_protocol_pack_coverage_report_is_complete_for_protocol_engine() -> None:

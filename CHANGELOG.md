@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.0 - 2026-03-20
+
+First production-ready AeroState release for the verified LG protocol scope.
+
+### Added
+- Production truth metadata for lg.pc09sq_nsj.protocol.v1.
+- Diagnostics support summary with selected pack, engine type, protocol path status, verified modes, swing status, fan modes, temperature range, linked sensors, and limitations.
+- Config flow hardening for missing selected pack during validation/confirm.
+- Options flow hardening for invalid model-pack reconfiguration.
+- Regression tests covering protocol pack truth, diagnostics summary, and flow hardening paths.
+
+### Changed
+- Active protocol pack marked verified with physically verified HVAC modes.
+- Verified temperature range finalized to 16-30 C and fan set finalized to 5 levels (auto, low, mid, high, highest).
+- Manifest version updated to 1.0.0.
+- README updated for production setup, support scope, and troubleshooting.
+
+### Intentionally Unchanged
+- Jet/Turbo remains disabled pending model-specific verified ON/OFF frames.
+- Advanced horizontal swing positions remain hidden pending verified mappings.
+- Latest-state-wins command pipeline, debounce behavior, and serialized Broadlink sending remain unchanged.
+
 ## 0.1.0-pilot - 2026-03-19
 
 **Pilot release for real-world testing.** First production-targeting release with pack authoring tools.

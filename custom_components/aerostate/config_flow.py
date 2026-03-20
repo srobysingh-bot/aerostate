@@ -197,7 +197,19 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_validation_result()
 
             registry = get_registry()
-            pack = registry.get(self._selected_pack_id or "")
+            try:
+                pack = registry.get(self._selected_pack_id or "")
+            except Exception:
+                self._validation_summary = {
+                    "status": "failed",
+                    "transport_ok": False,
+                    "set_available": False,
+                    "supported_modes": [],
+                    "mode_truth": {},
+                    "attempted": [],
+                    "error": "selected_pack_unavailable",
+                }
+                return await self.async_step_validation_result()
             provider = BroadlinkProvider(self.hass, self._broadlink_entity or "")
             engine = create_engine(pack)
 
@@ -286,7 +298,10 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         experimental_modes = [
             mode for mode, meta in mode_truth.items() if isinstance(meta, dict) and meta.get("status") == "experimental"
         ]
-        pack = get_registry().get(self._selected_pack_id or "")
+        try:
+            pack = get_registry().get(self._selected_pack_id or "")
+        except Exception:
+            return self.async_abort(reason="selected_pack_unavailable")
         limitation = describe_pack_limitations(pack)
         return self.async_show_form(
             step_id="validation_result",
@@ -310,7 +325,10 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.FlowResult:
         """Step 7: confirm and create entry."""
         registry = get_registry()
-        pack = registry.get(self._selected_pack_id or "")
+        try:
+            pack = registry.get(self._selected_pack_id or "")
+        except Exception:
+            return self.async_abort(reason="selected_pack_unavailable")
 
         if user_input is not None:
             if has_entry_collision(

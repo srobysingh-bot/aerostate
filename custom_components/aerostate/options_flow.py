@@ -122,6 +122,15 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                 # Keep pack changes explicit by only updating when a new pack is selected.
                 new_data[CONF_MODEL_PACK] = selected_pack
 
+            try:
+                selected_pack_obj = registry.get(new_data.get(CONF_MODEL_PACK))
+            except Exception:
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._schema(self._config_entry, pack_options),
+                    errors={"base": "invalid_model_pack"},
+                )
+
             for sensor_key in (
                 CONF_TEMP_SENSOR,
                 CONF_HUM_SENSOR,
@@ -135,7 +144,6 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                 else:
                     new_options.pop(sensor_key, None)
 
-            selected_pack_obj = registry.get(new_data.get(CONF_MODEL_PACK))
             new_title = build_entry_title(selected_pack_obj, new_options)
 
             self.hass.config_entries.async_update_entry(
@@ -147,7 +155,14 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             await self.hass.config_entries.async_reload(self._config_entry.entry_id)
             return self.async_create_entry(title="", data={})
 
-        current_pack = registry.get(self._config_entry.data.get(CONF_MODEL_PACK))
+        try:
+            current_pack = registry.get(self._config_entry.data.get(CONF_MODEL_PACK))
+        except Exception:
+            return self.async_show_form(
+                step_id="init",
+                data_schema=self._schema(self._config_entry, pack_options),
+                errors={"base": "invalid_model_pack"},
+            )
         limitation = describe_pack_limitations(current_pack)
         return self.async_show_form(
             step_id="init",
