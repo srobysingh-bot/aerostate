@@ -38,7 +38,16 @@ def test_protocol_pack_loads_with_lg_protocol_engine_and_vertical_positions() ->
         "low",
         "lowest",
     ]
-    assert pack.capabilities.swing_horizontal_modes == ["off", "on"]
+    assert pack.capabilities.swing_horizontal_modes == [
+        "off",
+        "on",
+        "state_1",
+        "state_2",
+        "state_3",
+        "state_4",
+        "state_5",
+        "auto",
+    ]
     assert pack.capabilities.preset_modes == []
     assert pack.capabilities.supports_jet is False
     assert pack.verified is True

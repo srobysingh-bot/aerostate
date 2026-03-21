@@ -79,6 +79,59 @@ class LGProtocolEngine(StateEngine):
 
         return merged
 
+    @staticmethod
+    def _broadlink_b64_to_pulses(payload: str) -> list[int]:
+        """Decode a Broadlink base64 packet into timing pulses."""
+        packet = base64.b64decode(payload)
+        if len(packet) < 6:
+            raise ValueError("Broadlink payload is too short")
+
+        data = packet[4:-2]
+        out: list[int] = []
+        idx = 0
+        while idx < len(data):
+            value = data[idx]
+            if value == 0:
+                if idx + 2 >= len(data):
+                    # Some learned packets contain trailing zero padding.
+                    break
+                out.append((data[idx + 1] << 8) + data[idx + 2])
+                idx += 3
+            else:
+                out.append(value)
+                idx += 1
+
+        out = [x for x in out if x > 0]
+        if not out:
+            raise ValueError("Broadlink payload has no pulse data")
+        return out
+
+    def _horizontal_learned_payload_map(self) -> dict[str, str]:
+        features = self._protocol_features()
+        raw = (
+            features.get("swing_horizontal_learned_payloads", {})
+            if isinstance(features, dict)
+            else {}
+        )
+        out: dict[str, str] = {}
+
+        if isinstance(raw, dict):
+            for mode, payload in raw.items():
+                if not isinstance(mode, str) or not isinstance(payload, str):
+                    continue
+                try:
+                    # Validate configured payload so we only advertise decodable modes.
+                    self._broadlink_b64_to_pulses(payload)
+                except Exception:
+                    _LOGGER.warning(
+                        "Ignoring invalid LG learned horizontal payload for mode '%s'",
+                        mode,
+                    )
+                    continue
+                out[mode.lower()] = payload
+
+        return out
+
     def _jet_frame_map(self) -> dict[str, list[int]]:
         features = self._protocol_features()
         raw = features.get("jet_frames", {}) if isinstance(features, dict) else {}
@@ -116,7 +169,8 @@ class LGProtocolEngine(StateEngine):
                 "auto": [0x88, 0x13, 0x16],
             },
         )
-        return sorted(frame_map.keys())
+        learned_map = self._horizontal_learned_payload_map()
+        return sorted(set(frame_map.keys()) | set(learned_map.keys()))
 
     def supported_preset_modes(self) -> list[str]:
         jet_frames = self._jet_frame_map()
@@ -268,6 +322,7 @@ class LGProtocolEngine(StateEngine):
                 "auto": [0x88, 0x13, 0x16],
             },
         )
+        horizontal_learned_payloads = self._horizontal_learned_payload_map()
         jet_frames = self._jet_frame_map()
         supported_presets = set(self.supported_preset_modes())
 
@@ -278,7 +333,7 @@ class LGProtocolEngine(StateEngine):
         )
         horizontal = self._normalize_swing_mode(
             state.get("swing_horizontal"),
-            set(horizontal_frames.keys()),
+            set(horizontal_frames.keys()) | set(horizontal_learned_payloads.keys()),
             "horizontal",
         )
         preset_mode = self._normalize_preset_mode(state.get("preset_mode"), supported_presets or {"none"})
@@ -298,8 +353,18 @@ class LGProtocolEngine(StateEngine):
             self._last_swing_vertical = vertical
             emitted.append("swing_vertical")
 
+        learned_horizontal = {"state_1", "state_2", "state_3", "state_4", "state_5", "auto"}
+        learned_horizontal_payload: str | None = None
         if horizontal != self._last_swing_horizontal:
-            frames.append(horizontal_frames[horizontal])
+            if horizontal in learned_horizontal and horizontal in horizontal_learned_payloads:
+                learned_horizontal_payload = horizontal_learned_payloads[horizontal]
+            else:
+                horizontal_frame = horizontal_frames.get(horizontal)
+                if horizontal_frame is None:
+                    raise ValueError(
+                        f"Unsupported LG protocol horizontal swing mode '{horizontal}'. Supported: {sorted(set(horizontal_frames.keys()) | set(horizontal_learned_payloads.keys()))}"
+                    )
+                frames.append(horizontal_frame)
             self._last_swing_horizontal = horizontal
             emitted.append("swing_horizontal")
 
@@ -319,6 +384,10 @@ class LGProtocolEngine(StateEngine):
         pulses: list[int] = []
         for frame in frames:
             pulses.extend(self._frame_to_pulses(frame))
+
+        if learned_horizontal_payload is not None:
+            pulses.extend(self._broadlink_b64_to_pulses(learned_horizontal_payload))
+            emitted.append("swing_horizontal_learned")
 
         payload = self._pulses_to_broadlink_b64(pulses)
         payload_hash = hashlib.sha256(payload.encode("ascii")).hexdigest()[:12]

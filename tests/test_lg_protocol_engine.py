@@ -46,7 +46,7 @@ def _advanced_pack() -> ModelPack:
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
             fan_modes=["auto", "f1", "f2", "f3", "f4", "f5"],
             swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
-            swing_horizontal_modes=["off", "swing", "left", "center", "right"],
+            swing_horizontal_modes=["off", "on", "state_1", "state_2", "state_3", "state_4", "state_5", "auto"],
             presets=["none", "jet"],
             preset_modes=["none", "jet"],
             supports_jet=True,
@@ -64,10 +64,16 @@ def _advanced_pack() -> ModelPack:
                 },
                 "swing_horizontal_frames": {
                     "off": [136, 19, 23],
+                    "on": [136, 19, 22],
                     "swing": [136, 19, 22],
-                    "left": [136, 19, 32],
-                    "center": [136, 19, 33],
-                    "right": [136, 19, 34],
+                },
+                "swing_horizontal_learned_payloads": {
+                    "state_1": "JgBAAGQAATIOMw4RDhIQEQ8yDRMPEg0TDRMOEw0SDjMNFA0RDzIPMg8SDBMPEA8TDBMPMQ4TDTQMMw4TDRIPMg4ADQU=",
+                    "state_2": "JgBAAGQAATMPMg4RDhMNEg8yDhINEw8QDxIQEA8RDjIOEg4SDjIPMg0TDRMPEg4SDhEQMQ4yDhIPMg0SDzINEg8ADQU=",
+                    "state_3": "JgBAAGQAATMPMg4SDxEPEQ8yDxEPEg8RDhIOEg8RDjIPEg4RDzIPMRAQDxIPEQ8RDRMOMg8yDzEOMw0SDzIQMA8ADQU=",
+                    "state_4": "JgBAAGUAATMOMg4SDxEQEQ0zDRMOEg4SDxINEhAQEDAQEQ4SDjIPMQ4SDhINEw4TDTMPEQ4SDhIQMQ4yDxEQEQ8ADQU=",
+                    "state_5": "JgBAAGIAATQPMQ8SDRMOEQ4yDxINExARDRIPEg0TDjIOEg4TDzENMw4SDhMNEg4SDjIOEw0SEDEOMhAwDhIOMw4ADQU=",
+                    "auto": "JgBAAGYAATEPMRARDRMOEw0zDRIQEA4TDxAQEQ0TDjIQEQ4SEDEOMg4SDhMOEQ4zDxIOMg0TEBAOMg4SDRMQMA8ADQU=",
                 },
                 "jet_frames": {
                     "on": [136, 16, 8],
@@ -167,7 +173,7 @@ def test_lg_protocol_engine_supports_advanced_swing_modes_when_mapped() -> None:
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "highest",
-            "swing_horizontal": "left",
+            "swing_horizontal": "state_1",
             "preset_mode": "none",
         }
     )
@@ -178,7 +184,7 @@ def test_lg_protocol_engine_supports_advanced_swing_modes_when_mapped() -> None:
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "lowest",
-            "swing_horizontal": "right",
+            "swing_horizontal": "state_5",
             "preset_mode": "none",
         }
     )
@@ -226,9 +232,54 @@ def test_lg_protocol_engine_rejects_unencodable_advanced_horizontal_swing() -> N
                 "target_temperature": 24,
                 "fan_mode": "auto",
                 "swing_vertical": "off",
-                "swing_horizontal": "left",
+                "swing_horizontal": "state_1",
             }
         )
+
+
+def test_lg_protocol_engine_off_on_horizontal_stays_available_with_learned_mapping() -> None:
+    engine = LGProtocolEngine(_advanced_pack())
+
+    horizontal_off = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+        }
+    )
+    horizontal_on = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "on",
+        }
+    )
+
+    assert horizontal_off != horizontal_on
+
+
+def test_lg_protocol_engine_advertises_advanced_horizontal_only_when_configured() -> None:
+    base_engine = LGProtocolEngine(_pack())
+    advanced_engine = LGProtocolEngine(_advanced_pack())
+
+    assert base_engine.supported_horizontal_swing_modes() == ["auto", "off", "on", "swing"]
+    assert advanced_engine.supported_horizontal_swing_modes() == [
+        "auto",
+        "off",
+        "on",
+        "state_1",
+        "state_2",
+        "state_3",
+        "state_4",
+        "state_5",
+        "swing",
+    ]
 
 
 def test_lg_protocol_engine_rejects_jet_when_not_configured() -> None:
