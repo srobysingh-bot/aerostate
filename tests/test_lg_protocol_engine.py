@@ -49,13 +49,13 @@ def _advanced_pack() -> ModelPack:
             swing_horizontal_modes=[
                 "off",
                 "on",
-                "state_1",
-                "state_2",
-                "state_3",
-                "state_4",
-                "state_5",
-                "state_6",
-                "auto",
+                "left_mid",
+                "mid",
+                "right_mid",
+                "right_most",
+                "left_swing",
+                "right_swing",
+                "full_swing",
             ],
             presets=["none", "jet"],
             preset_modes=["none", "jet"],
@@ -78,13 +78,15 @@ def _advanced_pack() -> ModelPack:
                     "swing": [136, 19, 22],
                 },
                 "swing_horizontal_learned_payloads": {
-                    "state_1": "JgBAAGQAATQOMg0TDxEOEg4yDRMPEQ4SDxIOEQ4TDjEPEg0SDjMOMg8RDxEQEA8SDjMNMw4RDxMNEg4SDxINEg8ADQU=",
-                    "state_2": "JgBAAGQAATIPMg8RDxEOEhAxDhINEw4SDRMPEg0SDzIOEg4SDjMOMg4SDhIOEg8RDjIPMQ8SDTMNEw8QEBEPMg0ADQU=",
-                    "state_3": "JgAkABAQDhMPMg4yDRIPEg4SDhINMw4yDjIPEg0SEBENNA4SDwANBQ==",
-                    "state_4": "JgBAAGUAATIOMw4SDhIOEg8xDhIPEQ4SDxINEg4TDjIOEw4RDzIPMg0TDhIPEA8yDxIPEQ8SDRIPEg4zDRIPMg4ADQU=",
-                    "state_5": "JgBAAGUAATIOMRARDxEOEw0zDRIQEQ0TDxAQEQ4SDzEQEQ0TEDEOMg4SDhIQEA4zDxIOERARDTMOEw4yDzIOEQ8ADQU=",
-                    "state_6": "JgBAAGQAATMQMQ4TDRIPEg0zDRMOEg8RDhIPEQ4SDjIOEw0SDjMOMg4SDhIQEA4zDxEPMg0yDxIPMQ0TDjMOMhAADQU=",
-                    "auto": "JgBAAGIAATMQMg4RDhMPERAxDhMOEg8RDhIQEA4TDTMNEw4SDjMNMhARDRIQEg0zDRIOMw4yEDENMw8yDRIOEhAADQU=",
+                    "on": "JgBAAGQAATEQMRARDRIOEw8wDhMPEQ4SDRMOEg8RDjMNEg4TDTMNMg4TDhEOEw0SDjMPEQ0zEDEOMg4yEDEOMg4ADQU=",
+                    "left_mid": "JgBAAGQAATIQMQ4TDxEPEg0zDRMOEQ4TDRIQEQ8RDjIQEQ0TDjIOMg0TDhMNEg4TDTMOMg4SDhIPERAQDhMNEw8ADQU=",
+                    "mid": "JgBAAGQAATMPMhAQDhMOEQ4yDxIOEg4SDxEQEA4SDjMPEQ4TDjINNA0SDhMPEQ4RDzIOMg8SDTMOEg4SDRMQMA8ADQU=",
+                    "right_mid": "JgBAAGUAATEQMg4SDxEOEw0yDhIOEhARDRIOEw0TDzEQEA4SDjMNMw0TDhMNEg4SDjIOMw4yDhINExAQDjMOEhAADQU=",
+                    "right_most": "JgBAAGQAATMPMQ4TDxEQEA4yDhMNEg4TDRIQEBARDjIQEA4TDTMNMw4SDhIOEw0SDjMOMg4yEDAOEg4TDzEPMRAADQU=",
+                    "left_swing": "JgBAAGUAATIOMRAREBAOEw4yDhIOEw0SDhIPEQ8RDjMOEg0TDjMOMg8QDhMPEQ4yDhMNEg8SDxEOEQ4yEBEPMg0ADQU=",
+                    "right_swing": "JgBAAGQAATIQMRAQDhIPEQ4yDhMOEQ8SDxEQEA4SDjMQEA4TDjIOMw0SDhIQEQ0zDRMQEQ8RDjMOEQ4zDzEQEQ0ADQU=",
+                    "full_swing": "JgBAAGUAATIPMRARDRMQEBAxDhIQEBARDRMQEQ0SDjMOEg4SDTQNMw8RDhIPEQ4zDRIOMw4yEBEOMg4SDjMNMw0ADQU=",
+                    "off": "JgBAAGUAATIPMg4RDhMNEw8xDhIPEQ0TDhINExARDTMNEw4RDjIOMg4TDRMOEg0yDhMQMA00DTMNMg4yDhMNEw8ADQU=",
                 },
                 "jet_frames": {
                     "on": [136, 16, 8],
@@ -184,7 +186,7 @@ def test_lg_protocol_engine_supports_advanced_swing_modes_when_mapped() -> None:
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "highest",
-            "swing_horizontal": "state_1",
+            "swing_horizontal": "left_mid",
             "preset_mode": "none",
         }
     )
@@ -195,7 +197,7 @@ def test_lg_protocol_engine_supports_advanced_swing_modes_when_mapped() -> None:
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "lowest",
-            "swing_horizontal": "state_6",
+            "swing_horizontal": "right_most",
             "preset_mode": "none",
         }
     )
@@ -243,7 +245,7 @@ def test_lg_protocol_engine_rejects_unencodable_advanced_horizontal_swing() -> N
                 "target_temperature": 24,
                 "fan_mode": "auto",
                 "swing_vertical": "off",
-                "swing_horizontal": "state_1",
+                "swing_horizontal": "left_mid",
             }
         )
 
@@ -281,20 +283,19 @@ def test_lg_protocol_engine_advertises_advanced_horizontal_only_when_configured(
 
     assert base_engine.supported_horizontal_swing_modes() == ["auto", "off", "on", "swing"]
     assert advanced_engine.supported_horizontal_swing_modes() == [
-        "auto",
+        "full_swing",
+        "left_mid",
+        "left_swing",
+        "mid",
         "off",
         "on",
-        "state_1",
-        "state_2",
-        "state_3",
-        "state_4",
-        "state_5",
-        "state_6",
-        "swing",
+        "right_mid",
+        "right_most",
+        "right_swing",
     ]
 
 
-def test_lg_protocol_engine_accepts_state_6_when_learned_mapping_exists() -> None:
+def test_lg_protocol_engine_accepts_right_most_when_learned_mapping_exists() -> None:
     engine = LGProtocolEngine(_advanced_pack())
 
     payload = engine.resolve_command(
@@ -304,7 +305,7 @@ def test_lg_protocol_engine_accepts_state_6_when_learned_mapping_exists() -> Non
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "off",
-            "swing_horizontal": "state_6",
+            "swing_horizontal": "right_most",
         }
     )
 
@@ -341,10 +342,53 @@ def test_lg_protocol_engine_uses_learned_only_payload_for_advanced_horizontal() 
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "off",
-            "swing_horizontal": "state_1",
+            "swing_horizontal": "left_mid",
             "preset_mode": "none",
         }
-    ) == learned_map["state_1"]
+    ) == learned_map["left_mid"]
+
+
+def test_lg_protocol_engine_uses_learned_off_and_on_payloads() -> None:
+    pack = _advanced_pack()
+    engine = LGProtocolEngine(pack)
+
+    learned_map = pack.commands["protocol_features"]["swing_horizontal_learned_payloads"]
+    # Establish baseline so horizontal-only changes can emit learned-only payloads.
+    engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "left_mid",
+            "preset_mode": "none",
+        }
+    )
+
+    assert engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+            "preset_mode": "none",
+        }
+    ) == learned_map["off"]
+
+    assert engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "on",
+            "preset_mode": "none",
+        }
+    ) == learned_map["on"]
 
 
 def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_temperature_change() -> None:
@@ -359,14 +403,14 @@ def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_temper
             "target_temperature": 25,
             "fan_mode": "auto",
             "swing_vertical": "off",
-            "swing_horizontal": "state_2",
+            "swing_horizontal": "mid",
             "preset_mode": "none",
         }
     )
 
     assert isinstance(commands, list)
     assert len(commands) == 2
-    assert commands[1] == learned_map["state_2"]
+    assert commands[1] == learned_map["mid"]
 
 
 def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_vertical_change() -> None:
@@ -381,14 +425,14 @@ def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_vertic
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "swing",
-            "swing_horizontal": "state_3",
+            "swing_horizontal": "right_mid",
             "preset_mode": "none",
         }
     )
 
     assert isinstance(commands, list)
     assert len(commands) == 2
-    assert commands[1] == learned_map["state_3"]
+    assert commands[1] == learned_map["right_mid"]
 
 
 def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_jet_change() -> None:
@@ -416,14 +460,14 @@ def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_jet_ch
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "off",
-            "swing_horizontal": "state_4",
+            "swing_horizontal": "right_swing",
             "preset_mode": "jet",
         }
     )
 
     assert isinstance(commands, list)
     assert len(commands) == 2
-    assert commands[1] == learned_map["state_4"]
+    assert commands[1] == learned_map["right_swing"]
 
 
 def test_lg_protocol_engine_rejects_jet_when_not_configured() -> None:

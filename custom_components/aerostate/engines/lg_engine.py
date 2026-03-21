@@ -170,7 +170,10 @@ class LGProtocolEngine(StateEngine):
             },
         )
         learned_map = self._horizontal_learned_payload_map()
-        return sorted(set(frame_map.keys()) | set(learned_map.keys()))
+        if learned_map:
+            # Learned horizontal map is authoritative when configured.
+            return sorted(learned_map.keys())
+        return sorted(frame_map.keys())
 
     def supported_preset_modes(self) -> list[str]:
         jet_frames = self._jet_frame_map()
@@ -333,7 +336,7 @@ class LGProtocolEngine(StateEngine):
         )
         horizontal = self._normalize_swing_mode(
             state.get("swing_horizontal"),
-            set(horizontal_frames.keys()) | set(horizontal_learned_payloads.keys()),
+            set(horizontal_learned_payloads.keys()) if horizontal_learned_payloads else set(horizontal_frames.keys()),
             "horizontal",
         )
         preset_mode = self._normalize_preset_mode(state.get("preset_mode"), supported_presets or {"none"})
@@ -346,7 +349,7 @@ class LGProtocolEngine(StateEngine):
         jet_changed = jet_enabled != self._last_jet
 
         learned_horizontal_payload: str | None = None
-        if horizontal_changed and horizontal not in {"off", "on", "swing"}:
+        if horizontal_changed and horizontal_learned_payloads:
             learned_horizontal_payload = horizontal_learned_payloads.get(horizontal)
             if learned_horizontal_payload is None:
                 raise ValueError(
