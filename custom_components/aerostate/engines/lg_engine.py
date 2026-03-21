@@ -283,7 +283,7 @@ class LGProtocolEngine(StateEngine):
         addit = 0x08 if self._last_mode != "off" else 0x00
         return [0x88, mode_code + addit, temp_code | fan_code]
 
-    def resolve_command(self, state: dict) -> str:
+    def resolve_command(self, state: dict) -> str | list[str]:
         _LOGGER.debug("LGProtocolEngine input state_dict=%s", state)
 
         power = state.get("power")
@@ -339,61 +339,108 @@ class LGProtocolEngine(StateEngine):
         preset_mode = self._normalize_preset_mode(state.get("preset_mode"), supported_presets or {"none"})
         jet_enabled = preset_mode == "jet"
 
-        frames: list[list[int]] = [
-            self._build_main_frame(mode=mode, target_temperature=target_temperature, fan_mode=fan_mode)
-        ]
-        emitted = ["main"]
-
         main_signature = (mode, target_temperature, fan_mode)
         main_changed = self._last_main_signature != main_signature
-        self._last_main_signature = main_signature
+        vertical_changed = vertical != self._last_swing_vertical
+        horizontal_changed = horizontal != self._last_swing_horizontal
+        jet_changed = jet_enabled != self._last_jet
 
-        if vertical != self._last_swing_vertical:
-            frames.append(vertical_frames[vertical])
-            self._last_swing_vertical = vertical
-            emitted.append("swing_vertical")
-
-        learned_horizontal = {"state_1", "state_2", "state_3", "state_4", "state_5", "auto"}
         learned_horizontal_payload: str | None = None
-        if horizontal != self._last_swing_horizontal:
-            if horizontal in learned_horizontal and horizontal in horizontal_learned_payloads:
-                learned_horizontal_payload = horizontal_learned_payloads[horizontal]
-            else:
+        if horizontal_changed and horizontal not in {"off", "on", "swing"}:
+            learned_horizontal_payload = horizontal_learned_payloads.get(horizontal)
+            if learned_horizontal_payload is None:
+                raise ValueError(
+                    f"Unsupported LG protocol horizontal swing mode '{horizontal}'. Supported: {sorted(set(horizontal_frames.keys()) | set(horizontal_learned_payloads.keys()))}"
+                )
+
+        protocol_required = main_changed or vertical_changed or jet_changed
+        protocol_frames: list[list[int]] = []
+        emitted_protocol: list[str] = []
+
+        if learned_horizontal_payload is None or protocol_required:
+            protocol_frames.append(
+                self._build_main_frame(mode=mode, target_temperature=target_temperature, fan_mode=fan_mode)
+            )
+            emitted_protocol.append("main")
+
+            if vertical_changed:
+                protocol_frames.append(vertical_frames[vertical])
+                emitted_protocol.append("swing_vertical")
+
+            if horizontal_changed and learned_horizontal_payload is None:
                 horizontal_frame = horizontal_frames.get(horizontal)
                 if horizontal_frame is None:
                     raise ValueError(
                         f"Unsupported LG protocol horizontal swing mode '{horizontal}'. Supported: {sorted(set(horizontal_frames.keys()) | set(horizontal_learned_payloads.keys()))}"
                     )
-                frames.append(horizontal_frame)
-            self._last_swing_horizontal = horizontal
-            emitted.append("swing_horizontal")
+                protocol_frames.append(horizontal_frame)
+                emitted_protocol.append("swing_horizontal")
 
-        if jet_enabled != self._last_jet:
-            jet_frame_key = "on" if jet_enabled else "off"
-            jet_frame = jet_frames.get(jet_frame_key)
-            if jet_frame is None:
-                raise ValueError(
-                    f"Jet preset transition requires protocol jet '{jet_frame_key}' frame but it is not configured"
-                )
-            frames.append(jet_frame)
-            emitted.append("jet")
-            self._last_jet = jet_enabled
+            if jet_changed:
+                jet_frame_key = "on" if jet_enabled else "off"
+                jet_frame = jet_frames.get(jet_frame_key)
+                if jet_frame is None:
+                    raise ValueError(
+                        f"Jet preset transition requires protocol jet '{jet_frame_key}' frame but it is not configured"
+                    )
+                protocol_frames.append(jet_frame)
+                emitted_protocol.append("jet")
 
-        self._last_mode = mode
+        sequence_payloads: list[str] = []
 
-        pulses: list[int] = []
-        for frame in frames:
-            pulses.extend(self._frame_to_pulses(frame))
+        if protocol_frames:
+            pulses: list[int] = []
+            for frame in protocol_frames:
+                pulses.extend(self._frame_to_pulses(frame))
+            sequence_payloads.append(self._pulses_to_broadlink_b64(pulses))
+
+            self._last_main_signature = main_signature
+            self._last_mode = mode
+            if vertical_changed:
+                self._last_swing_vertical = vertical
+            if horizontal_changed and learned_horizontal_payload is None:
+                self._last_swing_horizontal = horizontal
+            if jet_changed:
+                self._last_jet = jet_enabled
 
         if learned_horizontal_payload is not None:
-            pulses.extend(self._broadlink_b64_to_pulses(learned_horizontal_payload))
-            emitted.append("swing_horizontal_learned")
+            sequence_payloads.append(learned_horizontal_payload)
+            self._last_swing_horizontal = horizontal
 
-        payload = self._pulses_to_broadlink_b64(pulses)
-        payload_hash = hashlib.sha256(payload.encode("ascii")).hexdigest()[:12]
+        if not sequence_payloads:
+            # No effective state change resolved to a transmittable command.
+            payload = self._pulses_to_broadlink_b64(
+                self._frame_to_pulses(
+                    self._build_main_frame(mode=mode, target_temperature=target_temperature, fan_mode=fan_mode)
+                )
+            )
+            sequence_payloads.append(payload)
+            self._last_main_signature = main_signature
+            self._last_mode = mode
 
+        if len(sequence_payloads) == 1:
+            payload = sequence_payloads[0]
+            payload_hash = hashlib.sha256(payload.encode("ascii")).hexdigest()[:12]
+            emitted = emitted_protocol or ["swing_horizontal_learned_only"]
+            _LOGGER.debug(
+                "LGProtocolEngine normalized mode=%s fan=%s target=%s swing_v=%s swing_h=%s preset=%s jet=%s main_changed=%s emitted=%s frame_count=%s payload_hash=%s",
+                mode,
+                fan_mode,
+                target_temperature,
+                vertical,
+                horizontal,
+                preset_mode,
+                jet_enabled,
+                main_changed,
+                "+".join(emitted),
+                len(protocol_frames) if protocol_frames else 1,
+                payload_hash,
+            )
+            return payload
+
+        payload_hashes = [hashlib.sha256(p.encode("ascii")).hexdigest()[:12] for p in sequence_payloads]
         _LOGGER.debug(
-            "LGProtocolEngine normalized mode=%s fan=%s target=%s swing_v=%s swing_h=%s preset=%s jet=%s main_changed=%s emitted=%s frame_count=%s payload_hash=%s",
+            "LGProtocolEngine normalized mode=%s fan=%s target=%s swing_v=%s swing_h=%s preset=%s jet=%s main_changed=%s emitted=%s frame_count=%s payload_hashes=%s",
             mode,
             fan_mode,
             target_temperature,
@@ -402,9 +449,8 @@ class LGProtocolEngine(StateEngine):
             preset_mode,
             jet_enabled,
             main_changed,
-            "+".join(emitted),
-            len(frames),
-            payload_hash,
+            "+".join(emitted_protocol + ["swing_horizontal_learned"]),
+            len(protocol_frames),
+            ",".join(payload_hashes),
         )
-
-        return payload
+        return sequence_payloads

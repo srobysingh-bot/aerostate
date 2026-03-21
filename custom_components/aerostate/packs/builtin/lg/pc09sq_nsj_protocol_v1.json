@@ -10,7 +10,7 @@
   "max_temperature": 30,
   "temperature_step": 1,
   "verified": true,
-  "notes": "Production-verified LG protocol path for PC09SQ NSJ: HVAC auto/heat/cool/dry/fan_only, temperature 16-30, fan auto/f1/f2/f3/f4/f5 (auto is separate from manual F1-F5), and vertical swing positions are validated on real hardware. Horizontal swing keeps protocol off/on, while model-specific learned payloads are used for advanced horizontal numeric states (state_1..state_5/auto) on AKB75415308. Jet/Turbo remains disabled until model-specific ON/OFF frames are validated.",
+  "notes": "Production-verified LG protocol path for PC09SQ NSJ: HVAC auto/heat/cool/dry/fan_only, temperature 16-30, fan auto/f1/f2/f3/f4/f5 (auto is separate from manual F1-F5), and vertical swing positions are validated on real hardware. Horizontal swing keeps protocol off/on, while model-specific learned payloads are used for advanced horizontal numeric states (state_1..state_6/auto) on AKB75415308. Jet/Turbo remains disabled until model-specific ON/OFF frames are validated.",
   "physically_verified_modes": [
     "auto",
     "heat",
@@ -63,6 +63,7 @@
       "state_3",
       "state_4",
       "state_5",
+      "state_6",
       "auto"
     ],
     "presets": [],
@@ -91,12 +92,13 @@
         "auto": [136, 19, 22]
       },
       "swing_horizontal_learned_payloads": {
-        "state_1": "JgBAAGQAATIOMw4RDhIQEQ8yDRMPEg0TDRMOEw0SDjMNFA0RDzIPMg8SDBMPEA8TDBMPMQ4TDTQMMw4TDRIPMg4ADQU=",
-        "state_2": "JgBAAGQAATMPMg4RDhMNEg8yDhINEw8QDxIQEA8RDjIOEg4SDjIPMg0TDRMPEg4SDhEQMQ4yDhIPMg0SDzINEg8ADQU=",
-        "state_3": "JgBAAGQAATMPMg4SDxEPEQ8yDxEPEg8RDhIOEg8RDjIPEg4RDzIPMRAQDxIPEQ8RDRMOMg8yDzEOMw0SDzIQMA8ADQU=",
-        "state_4": "JgBAAGUAATMOMg4SDxEQEQ0zDRMOEg4SDxINEhAQEDAQEQ4SDjIPMQ4SDhINEw4TDTMPEQ4SDhIQMQ4yDxEQEQ8ADQU=",
-        "state_5": "JgBAAGIAATQPMQ8SDRMOEQ4yDxINExARDRIPEg0TDjIOEg4TDzENMw4SDhMNEg4SDjIOEw0SEDEOMhAwDhIOMw4ADQU=",
-        "auto": "JgBAAGYAATEPMRARDRMOEw0zDRIQEA4TDxAQEQ0TDjIQEQ4SEDEOMg4SDhMOEQ4zDxIOMg0TEBAOMg4SDRMQMA8ADQU="
+        "state_1": "JgBAAGQAATQOMg0TDxEOEg4yDRMPEQ4SDxIOEQ4TDjEPEg0SDjMOMg8RDxEQEA8SDjMNMw4RDxMNEg4SDxINEg8ADQU=",
+        "state_2": "JgBAAGQAATIPMg8RDxEOEhAxDhINEw4SDRMPEg0SDzIOEg4SDjMOMg4SDhIOEg8RDjIPMQ8SDTMNEw8QEBEPMg0ADQU=",
+        "state_3": "JgAkABAQDhMPMg4yDRIPEg4SDhINMw4yDjIPEg0SEBENNA4SDwANBQ==",
+        "state_4": "JgBAAGUAATIOMw4SDhIOEg8xDhIPEQ4SDxINEg4TDjIOEw4RDzIPMg0TDhIPEA8yDxIPEQ8SDRIPEg4zDRIPMg4ADQU=",
+        "state_5": "JgBAAGUAATIOMRARDxEOEw0zDRIQEQ0TDxAQEQ4SDzEQEQ0TEDEOMg4SDhIQEA4zDxIOERARDTMOEw4yDzIOEQ8ADQU=",
+        "state_6": "JgBAAGQAATMQMQ4TDRIPEg0zDRMOEg8RDhIPEQ4SDjIOEw0SDjMOMg4SDhIQEA4zDxEPMg0yDxIPMQ0TDjMOMhAADQU=",
+        "auto": "JgBAAGIAATMQMg4RDhMPERAxDhMOEg8RDhIQEA4TDTMNEw4SDjMNMhARDRIQEg0zDRIOMw4yEDENMw8yDRIOEhAADQU="
       },
       "jet_frames": {}
     }

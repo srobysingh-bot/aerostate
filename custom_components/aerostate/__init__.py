@@ -181,7 +181,12 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
             bucket["attempted"].append(label)
             try:
                 payload = engine.resolve_command(state)
-                await provider.send_base64(payload)
+                if isinstance(payload, list):
+                    await provider.send_sequence(
+                        [(f"cmd_{idx + 1}", item) for idx, item in enumerate(payload)]
+                    )
+                else:
+                    await provider.send_base64(payload)
                 attempted.append(label)
                 bucket["success_count"] = int(bucket["success_count"]) + 1
             except Exception as err:

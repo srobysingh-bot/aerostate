@@ -9,7 +9,7 @@ class StateEngine(ABC):
     """Abstract base for AC state resolution engines."""
 
     @abstractmethod
-    def resolve_command(self, state: dict) -> str:
+    def resolve_command(self, state: dict) -> str | list[str]:
         """Resolve full AC state into Broadlink base64 command.
 
         Args:
@@ -22,7 +22,8 @@ class StateEngine(ABC):
                 - swing_horizontal: str (off, swing, etc.)
 
         Returns:
-            Base64-encoded IR command
+            Base64-encoded IR command, or an ordered list of commands
+            that must be sent as separate transmissions.
 
         Raises:
             ValueError: If state cannot be resolved to a known command

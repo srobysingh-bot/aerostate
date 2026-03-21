@@ -233,7 +233,12 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 for label, test_state in states:
                     attempted.append(label)
                     payload = engine.resolve_command(test_state)
-                    await provider.send_base64(payload)
+                    if isinstance(payload, list):
+                        await provider.send_sequence(
+                            [(f"cmd_{idx + 1}", item) for idx, item in enumerate(payload)]
+                        )
+                    else:
+                        await provider.send_base64(payload)
                 self._validation_summary = {
                     "status": "passed",
                     "transport_ok": True,

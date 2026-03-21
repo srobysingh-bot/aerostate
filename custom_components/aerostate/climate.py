@@ -552,14 +552,20 @@ class AeroStateClimate(ClimateEntity):
 
             _LOGGER.debug("Applying state: %s", state_dict)
             command = self._engine.resolve_command(state_dict)
-            payload_hash = hashlib.sha256(command.encode("ascii")).hexdigest()[:12]
+            commands = command if isinstance(command, list) else [command]
+            payload_hash = hashlib.sha256("|".join(commands).encode("ascii")).hexdigest()[:12]
 
             if payload_hash == self._last_sent_payload_hash:
                 _LOGGER.debug("Skipping command send; payload hash unchanged (%s)", payload_hash)
                 self._last_sent_state = dict(state_dict)
                 return
 
-            await self._provider.send_base64(command)
+            if len(commands) == 1:
+                await self._provider.send_base64(commands[0])
+            else:
+                await self._provider.send_sequence(
+                    [(f"cmd_{idx + 1}", payload) for idx, payload in enumerate(commands)]
+                )
 
             self._last_sent_state = dict(state_dict)
             self._last_sent_payload_hash = payload_hash

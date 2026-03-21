@@ -46,7 +46,17 @@ def _advanced_pack() -> ModelPack:
             hvac_modes=["auto", "heat", "cool", "dry", "fan_only"],
             fan_modes=["auto", "f1", "f2", "f3", "f4", "f5"],
             swing_vertical_modes=["off", "swing", "highest", "middle", "lowest"],
-            swing_horizontal_modes=["off", "on", "state_1", "state_2", "state_3", "state_4", "state_5", "auto"],
+            swing_horizontal_modes=[
+                "off",
+                "on",
+                "state_1",
+                "state_2",
+                "state_3",
+                "state_4",
+                "state_5",
+                "state_6",
+                "auto",
+            ],
             presets=["none", "jet"],
             preset_modes=["none", "jet"],
             supports_jet=True,
@@ -68,12 +78,13 @@ def _advanced_pack() -> ModelPack:
                     "swing": [136, 19, 22],
                 },
                 "swing_horizontal_learned_payloads": {
-                    "state_1": "JgBAAGQAATIOMw4RDhIQEQ8yDRMPEg0TDRMOEw0SDjMNFA0RDzIPMg8SDBMPEA8TDBMPMQ4TDTQMMw4TDRIPMg4ADQU=",
-                    "state_2": "JgBAAGQAATMPMg4RDhMNEg8yDhINEw8QDxIQEA8RDjIOEg4SDjIPMg0TDRMPEg4SDhEQMQ4yDhIPMg0SDzINEg8ADQU=",
-                    "state_3": "JgBAAGQAATMPMg4SDxEPEQ8yDxEPEg8RDhIOEg8RDjIPEg4RDzIPMRAQDxIPEQ8RDRMOMg8yDzEOMw0SDzIQMA8ADQU=",
-                    "state_4": "JgBAAGUAATMOMg4SDxEQEQ0zDRMOEg4SDxINEhAQEDAQEQ4SDjIPMQ4SDhINEw4TDTMPEQ4SDhIQMQ4yDxEQEQ8ADQU=",
-                    "state_5": "JgBAAGIAATQPMQ8SDRMOEQ4yDxINExARDRIPEg0TDjIOEg4TDzENMw4SDhMNEg4SDjIOEw0SEDEOMhAwDhIOMw4ADQU=",
-                    "auto": "JgBAAGYAATEPMRARDRMOEw0zDRIQEA4TDxAQEQ0TDjIQEQ4SEDEOMg4SDhMOEQ4zDxIOMg0TEBAOMg4SDRMQMA8ADQU=",
+                    "state_1": "JgBAAGQAATQOMg0TDxEOEg4yDRMPEQ4SDxIOEQ4TDjEPEg0SDjMOMg8RDxEQEA8SDjMNMw4RDxMNEg4SDxINEg8ADQU=",
+                    "state_2": "JgBAAGQAATIPMg8RDxEOEhAxDhINEw4SDRMPEg0SDzIOEg4SDjMOMg4SDhIOEg8RDjIPMQ8SDTMNEw8QEBEPMg0ADQU=",
+                    "state_3": "JgAkABAQDhMPMg4yDRIPEg4SDhINMw4yDjIPEg0SEBENNA4SDwANBQ==",
+                    "state_4": "JgBAAGUAATIOMw4SDhIOEg8xDhIPEQ4SDxINEg4TDjIOEw4RDzIPMg0TDhIPEA8yDxIPEQ8SDRIPEg4zDRIPMg4ADQU=",
+                    "state_5": "JgBAAGUAATIOMRARDxEOEw0zDRIQEQ0TDxAQEQ4SDzEQEQ0TEDEOMg4SDhIQEA4zDxIOERARDTMOEw4yDzIOEQ8ADQU=",
+                    "state_6": "JgBAAGQAATMQMQ4TDRIPEg0zDRMOEg8RDhIPEQ4SDjIOEw0SDjMOMg4SDhIQEA4zDxEPMg0yDxIPMQ0TDjMOMhAADQU=",
+                    "auto": "JgBAAGIAATMQMg4RDhMPERAxDhMOEg8RDhIQEA4TDTMNEw4SDjMNMhARDRIQEg0zDRIOMw4yEDENMw8yDRIOEhAADQU=",
                 },
                 "jet_frames": {
                     "on": [136, 16, 8],
@@ -184,7 +195,7 @@ def test_lg_protocol_engine_supports_advanced_swing_modes_when_mapped() -> None:
             "target_temperature": 24,
             "fan_mode": "auto",
             "swing_vertical": "lowest",
-            "swing_horizontal": "state_5",
+            "swing_horizontal": "state_6",
             "preset_mode": "none",
         }
     )
@@ -278,8 +289,141 @@ def test_lg_protocol_engine_advertises_advanced_horizontal_only_when_configured(
         "state_3",
         "state_4",
         "state_5",
+        "state_6",
         "swing",
     ]
+
+
+def test_lg_protocol_engine_accepts_state_6_when_learned_mapping_exists() -> None:
+    engine = LGProtocolEngine(_advanced_pack())
+
+    payload = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "state_6",
+        }
+    )
+
+    if isinstance(payload, list):
+        assert len(payload) == 2
+        assert all(isinstance(item, str) and item for item in payload)
+    else:
+        assert isinstance(payload, str)
+        assert payload
+
+
+def test_lg_protocol_engine_uses_learned_only_payload_for_advanced_horizontal() -> None:
+    pack = _advanced_pack()
+    engine = LGProtocolEngine(pack)
+
+    learned_map = pack.commands["protocol_features"]["swing_horizontal_learned_payloads"]
+    # Establish baseline so advanced horizontal is the only effective change.
+    engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+            "preset_mode": "none",
+        }
+    )
+
+    assert engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "state_1",
+            "preset_mode": "none",
+        }
+    ) == learned_map["state_1"]
+
+
+def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_temperature_change() -> None:
+    pack = _advanced_pack()
+    engine = LGProtocolEngine(pack)
+
+    learned_map = pack.commands["protocol_features"]["swing_horizontal_learned_payloads"]
+    commands = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 25,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "state_2",
+            "preset_mode": "none",
+        }
+    )
+
+    assert isinstance(commands, list)
+    assert len(commands) == 2
+    assert commands[1] == learned_map["state_2"]
+
+
+def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_vertical_change() -> None:
+    pack = _advanced_pack()
+    engine = LGProtocolEngine(pack)
+
+    learned_map = pack.commands["protocol_features"]["swing_horizontal_learned_payloads"]
+    commands = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "swing",
+            "swing_horizontal": "state_3",
+            "preset_mode": "none",
+        }
+    )
+
+    assert isinstance(commands, list)
+    assert len(commands) == 2
+    assert commands[1] == learned_map["state_3"]
+
+
+def test_lg_protocol_engine_returns_sequence_for_advanced_horizontal_plus_jet_change() -> None:
+    pack = _advanced_pack()
+    engine = LGProtocolEngine(pack)
+
+    # Establish baseline non-jet state first.
+    assert engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+            "preset_mode": "none",
+        }
+    )
+
+    learned_map = pack.commands["protocol_features"]["swing_horizontal_learned_payloads"]
+    commands = engine.resolve_command(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "state_4",
+            "preset_mode": "jet",
+        }
+    )
+
+    assert isinstance(commands, list)
+    assert len(commands) == 2
+    assert commands[1] == learned_map["state_4"]
 
 
 def test_lg_protocol_engine_rejects_jet_when_not_configured() -> None:
