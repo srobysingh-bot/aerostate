@@ -17,6 +17,7 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
 )
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CONF_AREA,
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-class AeroStateClimate(ClimateEntity):
+class AeroStateClimate(ClimateEntity, RestoreEntity):
     """Climate entity for AeroState AC control."""
 
     _attr_has_entity_name = True
@@ -180,6 +181,103 @@ class AeroStateClimate(ClimateEntity):
                 self.entity_id,
                 self._attr_hvac_mode,
             )
+
+    @staticmethod
+    def _normalize_power_state(power_state: str | None) -> str | None:
+        """Normalize linked power sensor values into on/off when possible."""
+        if power_state is None:
+            return None
+        normalized = power_state.lower()
+        if normalized in {"on", "true", "1"}:
+            return "on"
+        if normalized in {"off", "false", "0"}:
+            return "off"
+        return None
+
+    def _pick_safe_running_mode(self, restored_mode: HVACMode | None = None) -> HVACMode | None:
+        """Pick a safe running mode when power feedback says the AC is on."""
+        running_modes = [mode for mode in self.hvac_modes if mode != HVACMode.OFF]
+        if not running_modes:
+            return None
+        if self._last_requested_hvac_mode in running_modes:
+            return self._last_requested_hvac_mode
+        if restored_mode in running_modes:
+            return restored_mode
+        if HVACMode.COOL in running_modes:
+            return HVACMode.COOL
+        return running_modes[0]
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state after restart and reconcile with linked power sensor."""
+        await super().async_added_to_hass()
+
+        last_state = await self.async_get_last_state()
+        restored_hvac_mode: HVACMode | None = None
+
+        if last_state is not None:
+            try:
+                candidate_hvac_mode = HVACMode(last_state.state)
+            except ValueError:
+                candidate_hvac_mode = None
+
+            if candidate_hvac_mode is not None and candidate_hvac_mode in self.hvac_modes:
+                self._attr_hvac_mode = candidate_hvac_mode
+                restored_hvac_mode = candidate_hvac_mode
+                if candidate_hvac_mode != HVACMode.OFF:
+                    self._last_requested_hvac_mode = candidate_hvac_mode
+
+            restored_temp = last_state.attributes.get(ATTR_TEMPERATURE)
+            if restored_temp is not None:
+                try:
+                    requested = int(round(float(restored_temp)))
+                except (TypeError, ValueError):
+                    requested = None
+                if requested is not None:
+                    if self._supported_temperatures:
+                        if requested in self._supported_temperatures:
+                            self._attr_target_temperature = float(requested)
+                    elif int(self._attr_min_temp) <= requested <= int(self._attr_max_temp):
+                        self._attr_target_temperature = float(requested)
+
+            restored_fan = last_state.attributes.get("fan_mode")
+            if isinstance(restored_fan, str):
+                normalized_fan = restored_fan.lower()
+                if normalized_fan in self._pack.capabilities.fan_modes:
+                    self._attr_fan_mode = normalized_fan
+
+            restored_swing = last_state.attributes.get("swing_mode")
+            if isinstance(restored_swing, str) and restored_swing in self._supported_swing_vertical_modes:
+                self._attr_swing_mode = restored_swing
+
+            restored_swing_horizontal = last_state.attributes.get("swing_horizontal_mode")
+            if (
+                isinstance(restored_swing_horizontal, str)
+                and restored_swing_horizontal in self._supported_swing_horizontal_modes
+            ):
+                self._attr_swing_horizontal_mode = restored_swing_horizontal
+
+            restored_preset = last_state.attributes.get("preset_mode")
+            if isinstance(restored_preset, str) and restored_preset in self._supported_preset_modes:
+                self._attr_preset_mode = restored_preset
+
+            restored_last_requested_hvac = last_state.attributes.get("last_requested_hvac_mode")
+            if isinstance(restored_last_requested_hvac, str):
+                try:
+                    candidate_requested = HVACMode(restored_last_requested_hvac)
+                except ValueError:
+                    candidate_requested = None
+                if candidate_requested in self.hvac_modes and candidate_requested != HVACMode.OFF:
+                    self._last_requested_hvac_mode = candidate_requested
+
+        normalized_power = self._normalize_power_state(self._power_sensor_state())
+        if normalized_power == "off":
+            self._attr_hvac_mode = HVACMode.OFF
+        elif normalized_power == "on" and self._attr_hvac_mode == HVACMode.OFF:
+            inferred_mode = self._pick_safe_running_mode(restored_hvac_mode)
+            if inferred_mode is not None:
+                self._attr_hvac_mode = inferred_mode
+
+        self.async_write_ha_state()
 
     @property
     def name(self) -> str:
@@ -341,10 +439,16 @@ class AeroStateClimate(ClimateEntity):
             "linked_power_sensor_degraded": power_state in {"unavailable", "unknown"},
             "pending_command": self._pending_state is not None,
             "desired_differs_from_last_sent": desired_differs_from_last_sent,
+            "last_requested_hvac_mode": self._last_requested_hvac_mode.value,
         }
         if self._last_send_error:
             attrs["last_command_error"] = self._last_send_error
         return attrs
+
+    @property
+    def assumed_state(self) -> bool:
+        """This entity is inferred from commands and optional sensors."""
+        return True
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set HVAC mode and schedule command apply."""
