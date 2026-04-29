@@ -34,7 +34,7 @@ except ModuleNotFoundError:  # pragma: no cover - enables unit tests without HA 
 try:
     from .engines import create_engine
     from .packs.registry import get_registry
-    from .providers import BroadlinkProvider
+    from .providers.ir_manager import create_ir_manager_from_entry
     from .repairs import (
         async_clear_validation_failed,
         async_report_validation_failed,
@@ -43,7 +43,7 @@ try:
     from .validation import build_safe_validation_states
 except ModuleNotFoundError:  # pragma: no cover - enables unit tests without HA runtime
     create_engine = None
-    BroadlinkProvider = None
+    create_ir_manager_from_entry = None
     get_registry = None
 
     async def async_validate_entry_runtime(*_args, **_kwargs):
@@ -151,12 +151,16 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
             )
             return
 
-        pack = get_registry().get(pack_id)
-        provider = BroadlinkProvider(hass, broadlink_entity)
+        registry = get_registry()
+        pack = registry.get(pack_id)
         engine = create_engine(pack)
+        ir_manager = create_ir_manager_from_entry(hass, entry, lg_engine=engine, registry=registry)
 
-        if not await provider.test_connection():
-            _LOGGER.warning("Self-test transport unavailable for %s", broadlink_entity)
+        if not await ir_manager.probe_active_transport():
+            _LOGGER.warning(
+                "Self-test transport probe failed for entry %s (see ir_provider / effective transport)",
+                entry_id,
+            )
             hass.bus.async_fire(
                 EVENT_SELF_TEST_RESULT,
                 {
@@ -180,13 +184,8 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
             )
             bucket["attempted"].append(label)
             try:
-                payload = engine.resolve_command(state)
-                if isinstance(payload, list):
-                    await provider.send_sequence(
-                        [(f"cmd_{idx + 1}", item) for idx, item in enumerate(payload)]
-                    )
-                else:
-                    await provider.send_base64(payload)
+                cmds, _ = ir_manager.resolve_to_ir_commands(state)
+                await ir_manager.async_send_commands(cmds)
                 attempted.append(label)
                 bucket["success_count"] = int(bucket["success_count"]) + 1
             except Exception as err:
@@ -210,6 +209,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                 "attempted": attempted,
                 "errors": errors,
                 "mode_results": mode_results,
+                "ir_transport_effective": ir_manager.effective_ir_mode(),
             }
 
         if success:
@@ -238,6 +238,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                 "attempted": attempted,
                 "errors": errors,
                 "mode_results": mode_results,
+                "ir_transport_effective": ir_manager.effective_ir_mode(),
             },
         )
     except Exception:

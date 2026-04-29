@@ -70,6 +70,10 @@
         "data": {
           "broadlink_entity": "Broadlink remote",
           "model_pack": "Model pack",
+          "ir_provider": "IR transport",
+          "tuya_ir_entity": "Local Tuya IR remote",
+          "tuya_model_pack": "Tuya IR model pack (hex fallback)",
+          "ir_conversion_enabled": "Best-effort Broadlink → Tuya hex conversion",
           "temperature_sensor": "Room temperature sensor",
           "humidity_sensor": "Room humidity sensor",
           "power_sensor": "Power sensor",

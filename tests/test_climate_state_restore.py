@@ -15,6 +15,8 @@ from custom_components.aerostate.climate import AeroStateClimate
 from custom_components.aerostate.const import CONF_POWER_SENSOR
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
 
+from tests.ir_testing_utils import IdleIRManager
+
 
 class _FakeStates:
     def __init__(self) -> None:
@@ -47,11 +49,6 @@ class _FakeHass:
     def __init__(self) -> None:
         self.config = _FakeConfig()
         self.states = _FakeStates()
-
-
-class _FakeProvider:
-    async def send_base64(self, payload: str) -> None:
-        return None
 
 
 class _FakeEngine:
@@ -119,7 +116,7 @@ def _build_climate(with_power_sensor: bool = False, hass: _FakeHass | None = Non
         hass=hass or _FakeHass(),
         entry=_entry(with_power_sensor=with_power_sensor),
         pack=_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeEngine(),
     )
     return climate

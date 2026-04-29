@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import custom_components.aerostate as integration
+from custom_components.aerostate.providers.ir_types import IRCommand
 
 
 class _FakeBus:
@@ -42,23 +43,27 @@ def _entry() -> SimpleNamespace:
     )
 
 
-class _Provider:
-    def __init__(self, _hass, _entity_id) -> None:
-        self.sent: list[str] = []
-
-    async def test_connection(self) -> bool:
-        return True
-
-    async def send_base64(self, payload: str) -> None:
-        self.sent.append(payload)
-
-
 class _Engine:
     def __init__(self, _pack) -> None:
         pass
 
     def resolve_command(self, _state: dict) -> str:
         return "PAYLOAD"
+
+
+class _IRM:
+    async def probe_active_transport(self) -> bool:
+        return True
+
+    def effective_ir_mode(self) -> str:
+        return "broadlink"
+
+    def resolve_to_ir_commands(self, _state: dict):
+        cmds = [IRCommand(name="cmd", payload="PAYLOAD", format="broadlink")]
+        return cmds, "abcdefabcdef"
+
+    async def async_send_commands(self, _cmds) -> None:
+        return None
 
 
 @pytest.mark.asyncio
@@ -70,7 +75,7 @@ async def test_self_test_uses_full_profile_and_emits_success_event(monkeypatch) 
     seen_profiles: list[str] = []
 
     monkeypatch.setattr(integration, "get_registry", lambda: SimpleNamespace(get=lambda _pid: object()))
-    monkeypatch.setattr(integration, "BroadlinkProvider", _Provider)
+    monkeypatch.setattr(integration, "create_ir_manager_from_entry", lambda *_a, **_kw: _IRM())
     monkeypatch.setattr(integration, "create_engine", lambda _pack: _Engine(_pack))
     monkeypatch.setattr(integration, "async_clear_validation_failed", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(integration, "async_report_validation_failed", lambda *_args, **_kwargs: None)
@@ -104,7 +109,7 @@ async def test_self_test_invalid_profile_falls_back_to_basic(monkeypatch) -> Non
     seen_profiles: list[str] = []
 
     monkeypatch.setattr(integration, "get_registry", lambda: SimpleNamespace(get=lambda _pid: object()))
-    monkeypatch.setattr(integration, "BroadlinkProvider", _Provider)
+    monkeypatch.setattr(integration, "create_ir_manager_from_entry", lambda *_a, **_kw: _IRM())
     monkeypatch.setattr(integration, "create_engine", lambda _pack: _Engine(_pack))
     monkeypatch.setattr(integration, "async_clear_validation_failed", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(integration, "async_report_validation_failed", lambda *_args, **_kwargs: None)

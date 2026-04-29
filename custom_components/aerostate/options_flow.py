@@ -13,10 +13,15 @@ from .const import (
     CONF_BRAND,
     CONF_BROADLINK_ENTITY,
     CONF_HUM_SENSOR,
+    CONF_IR_CONVERSION_ENABLED,
+    CONF_IR_PROVIDER,
     CONF_MODEL_PACK,
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_IR_ENTITY,
+    CONF_TUYA_MODEL_PACK,
+    DEFAULT_IR_PROVIDER,
 )
 from .flow_helpers import (
     build_entry_title,
@@ -34,8 +39,19 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
         self._config_entry = config_entry
 
     @staticmethod
-    def _schema(config_entry: config_entries.ConfigEntry, pack_options: list[selector.SelectOptionDict]) -> vol.Schema:
+    def _schema(
+        config_entry: config_entries.ConfigEntry,
+        pack_options: list[selector.SelectOptionDict],
+        tuya_pack_options: list[selector.SelectOptionDict],
+    ) -> vol.Schema:
         """Build options form schema."""
+        ir_default = config_entry.options.get(CONF_IR_PROVIDER, config_entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
+        tuya_entity_default = config_entry.options.get(CONF_TUYA_IR_ENTITY, config_entry.data.get(CONF_TUYA_IR_ENTITY))
+        tuya_pack_default = config_entry.options.get(CONF_TUYA_MODEL_PACK, config_entry.data.get(CONF_TUYA_MODEL_PACK))
+        conv_default = config_entry.options.get(CONF_IR_CONVERSION_ENABLED, config_entry.data.get(CONF_IR_CONVERSION_ENABLED, False))
+        if isinstance(conv_default, str):
+            conv_default = conv_default.strip().lower() in ("1", "true", "yes", "on")
+        conv_default = bool(conv_default)
         return vol.Schema(
             {
                 vol.Required(
@@ -46,6 +62,29 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_MODEL_PACK,
                     default=config_entry.data.get(CONF_MODEL_PACK),
                 ): selector.SelectSelector(selector.SelectSelectorConfig(options=pack_options)),
+                vol.Required(
+                    CONF_IR_PROVIDER,
+                    default=ir_default if ir_default else DEFAULT_IR_PROVIDER,
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="broadlink", label="Broadlink IR (default)"),
+                            selector.SelectOptionDict(value="tuya", label="Local Tuya IR (optional hex pack)"),
+                        ]
+                    ),
+                ),
+                vol.Optional(
+                    CONF_TUYA_IR_ENTITY,
+                    default=tuya_entity_default,
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="remote")),
+                vol.Optional(
+                    CONF_TUYA_MODEL_PACK,
+                    default=tuya_pack_default if tuya_pack_default else "",
+                ): selector.SelectSelector(selector.SelectSelectorConfig(options=tuya_pack_options)),
+                vol.Optional(
+                    CONF_IR_CONVERSION_ENABLED,
+                    default=conv_default,
+                ): selector.BooleanSelector(),
                 vol.Optional(
                     CONF_TEMP_SENSOR,
                     default=config_entry.options.get(CONF_TEMP_SENSOR),
@@ -90,6 +129,23 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             for pack in packs
         ]
 
+        all_packs = sorted(registry.list_all(), key=lambda p: p.pack_id)
+        tuya_pack_options: list[selector.SelectOptionDict] = [
+            selector.SelectOptionDict(value="", label="(none)"),
+        ]
+        for pack in all_packs:
+            tuya_pack_options.append(
+                selector.SelectOptionDict(
+                    value=pack.pack_id,
+                    label=(
+                        f"{pack.models[0] if pack.models else pack.pack_id} ({pack.pack_id})"
+                        f" — {pack.engine_type}"
+                    ),
+                ),
+            )
+
+        schema = self._schema(self._config_entry, pack_options, tuya_pack_options)
+
         if user_input is not None:
             selected_remote = user_input.get(
                 CONF_BROADLINK_ENTITY,
@@ -108,7 +164,7 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             ):
                 return self.async_show_form(
                     step_id="init",
-                    data_schema=self._schema(self._config_entry, pack_options),
+                    data_schema=schema,
                     errors={"base": "already_configured"},
                 )
 
@@ -127,9 +183,26 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             except Exception:
                 return self.async_show_form(
                     step_id="init",
-                    data_schema=self._schema(self._config_entry, pack_options),
+                    data_schema=schema,
                     errors={"base": "invalid_model_pack"},
                 )
+
+            sel_ir = str(user_input.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER) or DEFAULT_IR_PROVIDER).strip().lower()
+            new_options[CONF_IR_PROVIDER] = sel_ir if sel_ir in ("broadlink", "tuya") else DEFAULT_IR_PROVIDER
+
+            raw_tuya_entity = user_input.get(CONF_TUYA_IR_ENTITY)
+            if isinstance(raw_tuya_entity, str) and raw_tuya_entity.strip():
+                new_options[CONF_TUYA_IR_ENTITY] = raw_tuya_entity.strip()
+            else:
+                new_options.pop(CONF_TUYA_IR_ENTITY, None)
+
+            raw_tp = user_input.get(CONF_TUYA_MODEL_PACK)
+            if isinstance(raw_tp, str) and raw_tp.strip():
+                new_options[CONF_TUYA_MODEL_PACK] = raw_tp.strip()
+            else:
+                new_options.pop(CONF_TUYA_MODEL_PACK, None)
+
+            new_options[CONF_IR_CONVERSION_ENABLED] = bool(user_input.get(CONF_IR_CONVERSION_ENABLED, False))
 
             for sensor_key in (
                 CONF_TEMP_SENSOR,
@@ -160,13 +233,13 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
         except Exception:
             return self.async_show_form(
                 step_id="init",
-                data_schema=self._schema(self._config_entry, pack_options),
+                data_schema=schema,
                 errors={"base": "invalid_model_pack"},
             )
         limitation = describe_pack_limitations(current_pack)
         return self.async_show_form(
             step_id="init",
-            data_schema=self._schema(self._config_entry, pack_options),
+            data_schema=schema,
             description_placeholders={
                 "pack_notes": current_pack.notes or "none",
                 "pack_limitations": limitation or "none",

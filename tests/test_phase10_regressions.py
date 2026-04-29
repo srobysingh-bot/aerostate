@@ -70,6 +70,7 @@ def test_options_flow_constructor_uses_private_config_entry_reference() -> None:
 @pytest.mark.skipif(importlib.util.find_spec("homeassistant") is None, reason="homeassistant not installed")
 @pytest.mark.asyncio
 async def test_options_flow_rejects_invalid_model_pack(monkeypatch) -> None:
+    from custom_components.aerostate.const import CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER
     from custom_components.aerostate.options_flow import AeroStateOptionsFlowHandler
 
     config_entry = SimpleNamespace(
@@ -87,10 +88,19 @@ async def test_options_flow_rejects_invalid_model_pack(monkeypatch) -> None:
                     models=["PC09SQ NSJ"],
                     verified=True,
                     notes="verified",
-                    capabilities=SimpleNamespace(swing_vertical_modes=["on"], swing_horizontal_modes=["off", "on"]),
+                    capabilities=SimpleNamespace(
+                        hvac_modes=["cool"],
+                        fan_modes=["auto"],
+                        swing_vertical_modes=["on"],
+                        swing_horizontal_modes=["off", "on"],
+                    ),
                     engine_type="lg_protocol",
                 )
             ]
+
+        @staticmethod
+        def list_all():
+            return []
 
         @staticmethod
         def get(_pack_id: str):
@@ -114,7 +124,14 @@ async def test_options_flow_rejects_invalid_model_pack(monkeypatch) -> None:
 
     monkeypatch.setattr("custom_components.aerostate.options_flow.get_registry", lambda: _Registry())
 
-    result = await handler.async_step_init({"broadlink_entity": "remote.test", "model_pack": "lg.missing.v9"})
+    result = await handler.async_step_init(
+        {
+            "broadlink_entity": "remote.test",
+            "model_pack": "lg.missing.v9",
+            CONF_IR_PROVIDER: DEFAULT_IR_PROVIDER,
+            "tuya_model_pack": "",
+        },
+    )
     assert result["type"] == "form"
     assert result["step_id"] == "init"
     assert result["errors"] == {"base": "invalid_model_pack"}

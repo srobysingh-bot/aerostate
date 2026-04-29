@@ -186,10 +186,8 @@ async def test_validation_step_handles_missing_selected_pack(monkeypatch) -> Non
 
     result = await flow.async_step_validation({"run_validation": True})
 
-    assert result["type"] == "form"
-    assert result["step_id"] == "validation_result"
-    assert flow._validation_summary["status"] == "failed"
-    assert flow._validation_summary["error"] == "selected_pack_unavailable"
+    assert result["type"] == "abort"
+    assert result["reason"] == "selected_pack_unavailable"
 
 
 @pytest.mark.asyncio

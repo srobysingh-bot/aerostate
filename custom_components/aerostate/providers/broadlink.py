@@ -6,19 +6,16 @@ import asyncio
 import hashlib
 import logging
 import time
-from typing import TYPE_CHECKING
-
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-if TYPE_CHECKING:
-    pass
+from .ir_base import IRProvider
+from .ir_types import IRCommand
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 class BroadlinkProvider:
-    """Manages communication with a Broadlink remote device."""
 
     def __init__(self, hass: HomeAssistant, remote_entity_id: str) -> None:
         """Initialize with Home Assistant instance and remote entity ID.
@@ -162,3 +159,27 @@ class BroadlinkProvider:
                 errors.append(f"{label}: {err}")
                 break
         return {"attempted": attempted, "errors": errors, "success": len(errors) == 0}
+
+
+class BroadlinkIRProvider(IRProvider):
+    """Wraps :class:`BroadlinkProvider` with normalized :class:`IRCommand` input."""
+
+    def __init__(self, delegate: BroadlinkProvider) -> None:
+        self._delegate = delegate
+
+    async def send_command(self, command: IRCommand) -> None:
+        """Send a single Broadlink base64 payload."""
+        if command.format != "broadlink":
+            raise ValueError(
+                f"BroadlinkIRProvider only accepts IRCommand(format='broadlink'), got {command.format!r}"
+            )
+        await self._delegate.send_base64(command.payload)
+
+    async def send_sequence(self, commands: list[IRCommand]) -> dict[str, object]:
+        """Send a sequence of Broadlink commands with existing lock/ordering semantics."""
+        for command in commands:
+            if command.format != "broadlink":
+                raise ValueError(
+                    f"BroadlinkIRProvider only accepts IRCommand(format='broadlink'), got {command.format!r}"
+                )
+        return await self._delegate.send_sequence([(c.name, c.payload) for c in commands])

@@ -75,12 +75,10 @@
           "humidity_sensor": "Room humidity sensor",
           "power_sensor": "Power sensor",
           "area": "Area",
-          "name": "Display name"
-        }
-      }
-    },
-    "error": {
-      "already_configured": "Another AeroState entry already uses this controller and model pack.",
+          "name": "Display name",
+          "ir_provider": "IR transport backend",
+          "tuya_ir_entity": "Tuya IR remote entity (Local Tuya)",
+          "tuya_model_pack": "Tuya hex IR pack (table engine; separate from LG payloads)" "Another AeroState entry already uses this controller and model pack.",
       "invalid_model_pack": "The selected model pack is unavailable or invalid."
     }
   },

@@ -46,6 +46,14 @@ class _FakeRegistry:
         return self._pack
 
 
+class _DiagIR:
+    async def probe_active_transport(self) -> bool:
+        return True
+
+    def effective_ir_mode(self) -> str:
+        return "broadlink"
+
+
 def _pack() -> ModelPack:
     return ModelPack(
         pack_id="lg.test.v1",
@@ -118,19 +126,7 @@ async def test_diagnostics_includes_coverage_and_validation(monkeypatch) -> None
     monkeypatch.setattr(diagnostics, "get_registry", lambda: _FakeRegistry(pack))
     monkeypatch.setattr(diagnostics.er, "async_get", lambda _h: _FakeEntityRegistry())
 
-    class _Provider:
-        send_calls = 0
-
-        def __init__(self, *_):
-            pass
-
-        async def test_connection(self, payload=None):
-            return True
-
-        async def send_base64(self, _payload):
-            _Provider.send_calls += 1
-
-    monkeypatch.setattr(diagnostics, "BroadlinkProvider", _Provider)
+    monkeypatch.setattr(diagnostics, "create_ir_manager_from_entry", lambda *_a, **_k: _DiagIR())
 
     result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
 
@@ -157,7 +153,6 @@ async def test_diagnostics_includes_coverage_and_validation(monkeypatch) -> None
     assert resolved["support_summary"]["verified"] is True
     assert resolved["support_summary"]["temperature_range"] == [18, 20]
     assert resolved["support_summary"]["fan_modes"] == ["auto"]
-    assert _Provider.send_calls == 0
 
 
 @pytest.mark.asyncio
@@ -179,14 +174,7 @@ async def test_diagnostics_entity_lookup_via_registry(monkeypatch) -> None:
         lambda _h: _FakeEntityRegistry("climate.living_room_ac"),
     )
 
-    class _Provider:
-        def __init__(self, *_):
-            pass
-
-        async def test_connection(self, payload=None):
-            return True
-
-    monkeypatch.setattr(diagnostics, "BroadlinkProvider", _Provider)
+    monkeypatch.setattr(diagnostics, "create_ir_manager_from_entry", lambda *_a, **_k: _DiagIR())
 
     result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
     assert result["entity"]["entity_id"] == "climate.living_room_ac"
@@ -208,14 +196,7 @@ async def test_diagnostics_protocol_support_summary(monkeypatch) -> None:
     monkeypatch.setattr(diagnostics, "get_registry", lambda: _FakeRegistry(pack))
     monkeypatch.setattr(diagnostics.er, "async_get", lambda _h: _FakeEntityRegistry())
 
-    class _Provider:
-        def __init__(self, *_):
-            pass
-
-        async def test_connection(self, payload=None):
-            return True
-
-    monkeypatch.setattr(diagnostics, "BroadlinkProvider", _Provider)
+    monkeypatch.setattr(diagnostics, "create_ir_manager_from_entry", lambda *_a, **_k: _DiagIR())
 
     result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
     summary = result["resolved"]["support_summary"]

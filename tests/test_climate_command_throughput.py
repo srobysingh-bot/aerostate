@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 pytest.importorskip("homeassistant")
 
+
 from homeassistant.components.climate import HVACMode
 
 from custom_components.aerostate.climate import AeroStateClimate
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
+
+from tests.ir_testing_utils import EchoTrackingIRManager
 
 
 class _FakeStates:
@@ -46,17 +50,7 @@ class _FakeHass:
     def __init__(self) -> None:
         self.config = _FakeConfig()
         self.states = _FakeStates()
-
-
-class _TrackingProvider:
-    def __init__(self, send_delay: float = 0.0) -> None:
-        self.sent_payloads: list[str] = []
-        self.send_delay = send_delay
-
-    async def send_base64(self, payload: str) -> None:
-        if self.send_delay:
-            await asyncio.sleep(self.send_delay)
-        self.sent_payloads.append(payload)
+        self.data: dict = {"issue_registry": MagicMock()}
 
 
 class _StateEchoEngine:
@@ -139,8 +133,9 @@ def _build_climate(
     send_delay: float = 0.0,
     hass: _FakeHass | None = None,
     entry: SimpleNamespace | None = None,
-) -> tuple[AeroStateClimate, _TrackingProvider]:
-    provider = _TrackingProvider(send_delay=send_delay)
+) -> tuple[AeroStateClimate, EchoTrackingIRManager]:
+    engine = _StateEchoEngine()
+    mgr = EchoTrackingIRManager(engine, send_delay=send_delay)
     if hass is None:
         hass = _FakeHass()
     if entry is None:
@@ -149,16 +144,17 @@ def _build_climate(
         hass=hass,
         entry=entry,
         pack=_pack(),
-        provider=provider,
-        engine=_StateEchoEngine(),
+        ir_manager=mgr,
+        engine=engine,
     )
     climate._command_debounce_seconds = 0.01
-    return climate, provider
+    climate.async_write_ha_state = lambda: None  # type: ignore[assignment]
+    return climate, mgr
 
 
 @pytest.mark.asyncio
 async def test_rapid_mode_temp_fan_changes_collapse_to_final_state() -> None:
-    climate, provider = _build_climate()
+    climate, mgr = _build_climate()
 
     await climate.async_set_hvac_mode(HVACMode.COOL)
     await climate.async_set_temperature(temperature=24)
@@ -166,26 +162,26 @@ async def test_rapid_mode_temp_fan_changes_collapse_to_final_state() -> None:
 
     await asyncio.sleep(0.06)
 
-    assert len(provider.sent_payloads) == 1
-    assert provider.sent_payloads[0] == "m=cool|t=24|f=high|sv=off|sh=off|p=None"
+    assert len(mgr.sent_payloads) == 1
+    assert mgr.sent_payloads[0] == "m=cool|t=24|f=high|sv=off|sh=off|p=None"
 
 
 @pytest.mark.asyncio
 async def test_repeated_temp_slider_changes_only_send_last_temp() -> None:
-    climate, provider = _build_climate()
+    climate, mgr = _build_climate()
 
     for temp in [20, 21, 22, 23, 24, 25]:
         await climate.async_set_temperature(temperature=temp)
 
     await asyncio.sleep(0.06)
 
-    assert len(provider.sent_payloads) == 1
-    assert "|t=25|" in provider.sent_payloads[0]
+    assert len(mgr.sent_payloads) == 1
+    assert "|t=25|" in mgr.sent_payloads[0]
 
 
 @pytest.mark.asyncio
 async def test_swing_spam_final_state_wins() -> None:
-    climate, provider = _build_climate()
+    climate, mgr = _build_climate()
 
     await climate.async_set_swing_mode("on")
     await climate.async_set_swing_mode("off")
@@ -193,25 +189,25 @@ async def test_swing_spam_final_state_wins() -> None:
 
     await asyncio.sleep(0.06)
 
-    assert len(provider.sent_payloads) == 1
-    assert "|sv=on|" in provider.sent_payloads[0]
+    assert len(mgr.sent_payloads) == 1
+    assert "|sv=on|" in mgr.sent_payloads[0]
 
 
 @pytest.mark.asyncio
 async def test_unchanged_state_does_not_duplicate_send() -> None:
-    climate, provider = _build_climate()
+    climate, mgr = _build_climate()
 
     await climate.async_set_temperature(temperature=23)
     await asyncio.sleep(0.06)
     await climate.async_set_temperature(temperature=23)
     await asyncio.sleep(0.06)
 
-    assert len(provider.sent_payloads) == 1
+    assert len(mgr.sent_payloads) == 1
 
 
 @pytest.mark.asyncio
 async def test_latest_state_wins_while_send_in_flight() -> None:
-    climate, provider = _build_climate(send_delay=0.05)
+    climate, mgr = _build_climate(send_delay=0.05)
     climate._command_debounce_seconds = 0.0
 
     await climate.async_set_temperature(temperature=20)
@@ -223,16 +219,16 @@ async def test_latest_state_wins_while_send_in_flight() -> None:
 
     await asyncio.sleep(0.2)
 
-    assert len(provider.sent_payloads) == 2
-    assert "|t=20|" in provider.sent_payloads[0]
-    assert "|t=23|" in provider.sent_payloads[1]
+    assert len(mgr.sent_payloads) == 2
+    assert "|t=20|" in mgr.sent_payloads[0]
+    assert "|t=23|" in mgr.sent_payloads[1]
 
 
 @pytest.mark.asyncio
 async def test_rapid_mixed_updates_with_power_sensor_lag_keep_latest_state_wins() -> None:
     hass = _FakeHass()
     hass.states.set("sensor.ac_power", "off")
-    climate, provider = _build_climate(
+    climate, mgr = _build_climate(
         hass=hass,
         entry=_entry_with_power_sensor(),
     )
@@ -245,24 +241,26 @@ async def test_rapid_mixed_updates_with_power_sensor_lag_keep_latest_state_wins(
 
     await asyncio.sleep(0.06)
 
-    assert len(provider.sent_payloads) == 1
-    assert provider.sent_payloads[0] == "m=cool|t=24|f=high|sv=on|sh=off|p=None"
+    assert len(mgr.sent_payloads) == 1
+    assert mgr.sent_payloads[0] == "m=cool|t=24|f=high|sv=on|sh=off|p=None"
 
 
 @pytest.mark.asyncio
 async def test_async_set_preset_mode_applies_jet_when_supported() -> None:
-    provider = _TrackingProvider(send_delay=0.0)
+    engine = _PresetEchoEngine()
+    mgr = EchoTrackingIRManager(engine, send_delay=0.0)
     climate = AeroStateClimate(
         hass=_FakeHass(),
         entry=_entry(),
         pack=_pack_with_jet_presets(),
-        provider=provider,
-        engine=_PresetEchoEngine(),
+        ir_manager=mgr,
+        engine=engine,
     )
     climate._command_debounce_seconds = 0.01
+    climate.async_write_ha_state = lambda: None  # type: ignore[assignment]
 
     await climate.async_set_preset_mode("jet")
     await asyncio.sleep(0.06)
 
-    assert len(provider.sent_payloads) == 1
-    assert "|p=jet" in provider.sent_payloads[0]
+    assert len(mgr.sent_payloads) == 1
+    assert "|p=jet" in mgr.sent_payloads[0]

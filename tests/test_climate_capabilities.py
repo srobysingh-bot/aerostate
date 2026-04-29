@@ -14,6 +14,8 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.aerostate.climate import AeroStateClimate
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
 
+from tests.ir_testing_utils import IdleIRManager
+
 
 class _FakeStates:
     def get(self, entity_id: str):
@@ -32,11 +34,6 @@ class _FakeHass:
     def __init__(self) -> None:
         self.config = _FakeConfig()
         self.states = _FakeStates()
-
-
-class _FakeProvider:
-    async def send_base64(self, payload: str) -> None:
-        return None
 
 
 class _FakeEngine:
@@ -85,10 +82,10 @@ def _cool_only_pack() -> ModelPack:
         commands={
             "off": "OFF",
             "cool": {
-                "auto": {"18": "C_AUTO_18"},
-                "low": {"18": "C_LOW_18"},
-                "mid": {"18": "C_MID_18"},
-                "high": {"18": "C_HIGH_18"},
+                "auto": {str(t): f"C_AUTO_{t}" for t in range(18, 31) if t != 26},
+                "low": {str(t): f"C_LOW_{t}" for t in range(18, 31) if t != 26},
+                "mid": {str(t): f"C_MID_{t}" for t in range(18, 31) if t != 26},
+                "high": {str(t): f"C_HIGH_{t}" for t in range(18, 31) if t != 26},
             },
         },
         verified=True,
@@ -109,18 +106,23 @@ def test_climate_supported_features_respect_pack_capabilities() -> None:
         hass=_FakeHass(),
         entry=_entry(),
         pack=_cool_only_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeEngine(),
     )
 
     features = climate.supported_features
     assert features & ClimateEntityFeature.FAN_MODE
     assert not (features & ClimateEntityFeature.SWING_MODE)
-    assert not (features & ClimateEntityFeature.SWING_HORIZONTAL_MODE)
+    if hasattr(ClimateEntityFeature, "SWING_HORIZONTAL_MODE"):
+        assert not (features & ClimateEntityFeature.SWING_HORIZONTAL_MODE)
     assert climate.swing_modes is None
     assert climate.swing_horizontal_modes is None
     assert climate.hvac_modes == [HVACMode.OFF, HVACMode.COOL]
     assert climate.fan_modes == ["auto", "low", "mid", "high"]
+
+
+def _mute_climate_state_write(climate: object) -> None:
+    climate.async_write_ha_state = lambda: None  # type: ignore[assignment]
 
 
 @pytest.mark.asyncio
@@ -129,9 +131,10 @@ async def test_climate_rejects_unsupported_fan_mode() -> None:
         hass=_FakeHass(),
         entry=_entry(),
         pack=_cool_only_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeEngine(),
     )
+    _mute_climate_state_write(climate)
 
     with pytest.raises(HomeAssistantError, match="not supported"):
         await climate.async_set_fan_mode("turbo")
@@ -143,9 +146,10 @@ async def test_climate_rejects_unsupported_temperature() -> None:
         hass=_FakeHass(),
         entry=_entry(),
         pack=_cool_only_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeEngine(),
     )
+    _mute_climate_state_write(climate)
 
     with pytest.raises(HomeAssistantError, match="not available"):
         await climate.async_set_temperature(temperature=26)
@@ -157,9 +161,10 @@ async def test_climate_rejects_unsupported_hvac_mode() -> None:
         hass=_FakeHass(),
         entry=_entry(),
         pack=_cool_only_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeEngine(),
     )
+    _mute_climate_state_write(climate)
 
     with pytest.raises(HomeAssistantError, match="not supported"):
         await climate.async_set_hvac_mode(HVACMode.HEAT)
@@ -200,7 +205,7 @@ def test_climate_exposes_all_hvac_modes_from_capabilities() -> None:
         hass=_FakeHass(),
         entry=_entry(),
         pack=_full_capability_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeEngine(),
     )
 
@@ -245,7 +250,7 @@ def test_protocol_pack_climate_exposes_binary_swing_axes() -> None:
         hass=_FakeHass(),
         entry=_entry(),
         pack=_protocol_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeCapabilityEngine(
             vertical=["off", "swing"],
             horizontal=["off", "on"],
@@ -255,7 +260,8 @@ def test_protocol_pack_climate_exposes_binary_swing_axes() -> None:
 
     features = climate.supported_features
     assert features & ClimateEntityFeature.SWING_MODE
-    assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
+    if hasattr(ClimateEntityFeature, "SWING_HORIZONTAL_MODE"):
+        assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
     assert not (features & ClimateEntityFeature.PRESET_MODE)
     assert climate.swing_modes == ["off", "swing"]
     assert climate.swing_horizontal_modes == ["off", "on"]
@@ -270,13 +276,15 @@ async def test_protocol_pack_accepts_uppercase_fan_mode_alias_input() -> None:
         hass=_FakeHass(),
         entry=_entry(),
         pack=_protocol_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeCapabilityEngine(
             vertical=["off", "swing"],
             horizontal=["off", "on"],
             presets=[],
         ),
     )
+
+    _mute_climate_state_write(climate)
 
     await climate.async_set_fan_mode("F1")
     assert climate.fan_mode == "f1"
@@ -287,7 +295,7 @@ def test_protocol_pack_exposes_advanced_swing_and_jet_only_when_engine_supports(
         hass=_FakeHass(),
         entry=_entry(),
         pack=_protocol_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeCapabilityEngine(
             vertical=["off", "swing", "highest", "middle", "lowest"],
             horizontal=["off", "on"],
@@ -297,7 +305,8 @@ def test_protocol_pack_exposes_advanced_swing_and_jet_only_when_engine_supports(
 
     features = climate.supported_features
     assert features & ClimateEntityFeature.SWING_MODE
-    assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
+    if hasattr(ClimateEntityFeature, "SWING_HORIZONTAL_MODE"):
+        assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
     assert features & ClimateEntityFeature.PRESET_MODE
     assert climate.swing_modes == ["off", "swing", "highest", "middle", "lowest"]
     assert climate.swing_horizontal_modes == ["off", "on"]
@@ -310,13 +319,15 @@ async def test_protocol_pack_rejects_temperature_below_supported_range() -> None
         hass=_FakeHass(),
         entry=_entry(),
         pack=_protocol_pack(),
-        provider=_FakeProvider(),
+        ir_manager=IdleIRManager(),
         engine=_FakeCapabilityEngine(
             vertical=["off", "swing"],
             horizontal=["off", "on"],
             presets=[],
         ),
     )
+
+    _mute_climate_state_write(climate)
 
     with pytest.raises(HomeAssistantError, match="outside the supported range"):
         await climate.async_set_temperature(temperature=15)

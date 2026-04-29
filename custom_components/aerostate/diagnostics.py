@@ -12,16 +12,22 @@ from homeassistant.helpers import entity_registry as er
 from .const import (
     CONF_BROADLINK_ENTITY,
     CONF_HUM_SENSOR,
+    CONF_IR_CONVERSION_ENABLED,
+    CONF_IR_PROVIDER,
     CONF_MODEL_PACK,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_IR_ENTITY,
+    CONF_TUYA_MODEL_PACK,
+    DEFAULT_IR_PROVIDER,
     DOMAIN,
 )
+from .engines import create_engine
 from .flow_helpers import describe_pack_limitations
 from .packs.coverage import get_pack_coverage_report
 from .packs.registry import get_registry
 from .packs.truth import build_mode_truth
-from .providers import BroadlinkProvider
+from .providers.ir_manager import create_ir_manager_from_entry
 from .validation import build_safe_validation_states
 
 TO_REDACT: set[str] = set()
@@ -56,9 +62,21 @@ async def async_get_config_entry_diagnostics(
     experimental_modes = [mode for mode, meta in (mode_truth or {}).items() if meta.get("status") == "experimental"]
     transport_available = False
     validation_states_ready = False
+    ir_transport_effective = None
+
+    configured_ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
+
+    cfg_ir_conversion = entry.options.get(CONF_IR_CONVERSION_ENABLED, entry.data.get(CONF_IR_CONVERSION_ENABLED, False))
+    if isinstance(cfg_ir_conversion, str):
+        configured_ir_conversion_enabled = cfg_ir_conversion.strip().lower() in ("1", "true", "yes", "on")
+    else:
+        configured_ir_conversion_enabled = bool(cfg_ir_conversion)
+
     if pack and broadlink_entity:
-        provider = BroadlinkProvider(hass, broadlink_entity)
-        transport_available = await provider.test_connection()
+        engine = create_engine(pack)
+        ir_mgr = create_ir_manager_from_entry(hass, entry, lg_engine=engine, registry=registry)
+        transport_available = await ir_mgr.probe_active_transport()
+        ir_transport_effective = ir_mgr.effective_ir_mode()
         try:
             states = build_safe_validation_states(pack, "basic")
             validation_states_ready = len(states) > 1
@@ -75,6 +93,11 @@ async def async_get_config_entry_diagnostics(
         "resolved": {
             "broadlink_entity": broadlink_entity,
             "broadlink_entity_state": broadlink_state,
+            "ir_provider_configured": configured_ir_provider,
+            "ir_transport_effective": ir_transport_effective,
+            "ir_conversion_enabled": configured_ir_conversion_enabled,
+            "tuya_ir_entity": entry.options.get(CONF_TUYA_IR_ENTITY, entry.data.get(CONF_TUYA_IR_ENTITY)),
+            "tuya_model_pack": entry.options.get(CONF_TUYA_MODEL_PACK, entry.data.get(CONF_TUYA_MODEL_PACK)),
             "pack_id": pack_id,
             "selected_pack_id": pack_id,
             "pack_brand": pack.brand if pack else None,
