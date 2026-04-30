@@ -63,6 +63,7 @@ async def async_get_config_entry_diagnostics(
     transport_available = False
     validation_states_ready = False
     ir_transport_effective = None
+    ir_tuya_route: dict[str, Any] = {}
 
     configured_ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
 
@@ -77,6 +78,7 @@ async def async_get_config_entry_diagnostics(
         ir_mgr = create_ir_manager_from_entry(hass, entry, lg_engine=engine, registry=registry)
         transport_available = await ir_mgr.probe_active_transport()
         ir_transport_effective = ir_mgr.effective_ir_mode()
+        ir_tuya_route = {**ir_mgr.tuya_send_debug(), "tuya_assumes_no_ack": ir_mgr.tuya_assumes_no_ack}
         try:
             states = build_safe_validation_states(pack, "basic")
             validation_states_ready = len(states) > 1
@@ -96,6 +98,7 @@ async def async_get_config_entry_diagnostics(
             "ir_provider_configured": configured_ir_provider,
             "ir_transport_effective": ir_transport_effective,
             "ir_conversion_enabled": configured_ir_conversion_enabled,
+            "ir_tuya_route": ir_tuya_route,
             "tuya_ir_entity": entry.options.get(CONF_TUYA_IR_ENTITY, entry.data.get(CONF_TUYA_IR_ENTITY)),
             "tuya_model_pack": entry.options.get(CONF_TUYA_MODEL_PACK, entry.data.get(CONF_TUYA_MODEL_PACK)),
             "pack_id": pack_id,

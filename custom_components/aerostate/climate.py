@@ -271,12 +271,18 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                     self._last_requested_hvac_mode = candidate_requested
 
         normalized_power = self._normalize_power_state(self._power_sensor_state())
-        if normalized_power == "off":
-            self._attr_hvac_mode = HVACMode.OFF
-        elif normalized_power == "on" and self._attr_hvac_mode == HVACMode.OFF:
-            inferred_mode = self._pick_safe_running_mode(restored_hvac_mode)
-            if inferred_mode is not None:
-                self._attr_hvac_mode = inferred_mode
+        if self._ir_manager.tuya_assumes_no_ack:
+            if normalized_power == "on" and self._attr_hvac_mode == HVACMode.OFF:
+                inferred_mode = self._pick_safe_running_mode(restored_hvac_mode)
+                if inferred_mode is not None:
+                    self._attr_hvac_mode = inferred_mode
+        else:
+            if normalized_power == "off":
+                self._attr_hvac_mode = HVACMode.OFF
+            elif normalized_power == "on" and self._attr_hvac_mode == HVACMode.OFF:
+                inferred_mode = self._pick_safe_running_mode(restored_hvac_mode)
+                if inferred_mode is not None:
+                    self._attr_hvac_mode = inferred_mode
 
         self.async_write_ha_state()
 
@@ -453,7 +459,10 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             "last_requested_hvac_mode": self._last_requested_hvac_mode.value,
             "ir_transport_effective": self._ir_manager.effective_ir_mode(),
             "ir_provider_configured": self._ir_manager.preference_configured,
+            "tuya_ir_no_ack_mode": self._ir_manager.tuya_assumes_no_ack,
         }
+        if self._ir_manager.preference_configured == IR_PROVIDER_TUYA:
+            attrs.update(self._ir_manager.tuya_send_debug())
         if self._last_send_error:
             attrs["last_command_error"] = self._last_send_error
         return attrs
@@ -698,11 +707,18 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 state_dict,
                 err,
             )
-            _LOGGER.warning(
-                "AeroState desired state is not yet confirmed on device. desired=%s last_sent=%s",
-                state_dict,
-                self._last_sent_state,
-            )
+            if self._ir_manager.preference_configured == IR_PROVIDER_TUYA:
+                _LOGGER.warning(
+                    "Tuya IR send did not succeed (MCU often does not report IR echo). desired=%s last_sent=%s",
+                    state_dict,
+                    self._last_sent_state,
+                )
+            else:
+                _LOGGER.warning(
+                    "AeroState desired state is not yet confirmed on device. desired=%s last_sent=%s",
+                    state_dict,
+                    self._last_sent_state,
+                )
             async_report_command_failure(self._hass, self._entry)
             self.async_write_ha_state()
 

@@ -53,6 +53,13 @@ class _DiagIR:
     def effective_ir_mode(self) -> str:
         return "broadlink"
 
+    def tuya_send_debug(self) -> dict[str, object]:
+        return {}
+
+    @property
+    def tuya_assumes_no_ack(self) -> bool:
+        return False
+
 
 def _pack() -> ModelPack:
     return ModelPack(

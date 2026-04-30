@@ -104,7 +104,7 @@ async def test_tuya_sends_normalized_hex_without_broadlink_format() -> None:
 
     bp_inst = BroadlinkProvider(hass, "remote.rm1")
     br = BroadlinkIRProvider(bp_inst)
-    tuya_sender = TuyaIRProvider(hass, "remote.kitchen_tuya_ir")
+    tuya_sender = TuyaIRProvider(hass, "remote.kitchen_tuya_ir", blocking=False)
 
     _HexTableEngine.resolve_calls = 0
     mgr = IRManager(

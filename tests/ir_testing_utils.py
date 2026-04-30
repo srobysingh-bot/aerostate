@@ -18,6 +18,13 @@ class IdleIRManager:
     def preference_configured(self) -> str:
         return "broadlink"
 
+    @property
+    def tuya_assumes_no_ack(self) -> bool:
+        return False
+
+    def tuya_send_debug(self) -> dict[str, Any]:
+        return {}
+
 
 class EchoTrackingIRManager(IdleIRManager):
     """Mirrors production IRManager resolve/hash semantics for throughput tests."""

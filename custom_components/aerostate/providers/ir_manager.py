@@ -13,8 +13,13 @@ from ..const import (
     CONF_BROADLINK_ENTITY,
     CONF_IR_CONVERSION_ENABLED,
     CONF_IR_PROVIDER,
+    CONF_TUYA_IR_DP,
     CONF_TUYA_IR_ENTITY,
+    CONF_TUYA_IR_NO_ACK_MODE,
+    CONF_TUYA_IR_SEND_BLOCKING,
+    CONF_TUYA_LOCAL_DEVICE_ID,
     CONF_TUYA_MODEL_PACK,
+    DEFAULT_TUYA_IR_DP,
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
 )
@@ -29,6 +34,23 @@ from .tuya_ir import TuyaIRProvider
 _LOGGER = logging.getLogger(__name__)
 
 BackendDisplay = Literal["broadlink", "tuya", "misconfigured"]
+
+
+def _opt_bool_from_entry(entry: ConfigEntry | Any, key: str, default: bool) -> bool:
+    v = entry.options.get(key, entry.data.get(key, default))
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return bool(v)
+
+
+def _opt_int_from_entry(entry: ConfigEntry | Any, key: str, default: int) -> int:
+    raw = entry.options.get(key, entry.data.get(key, default))
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(str(raw).strip(), 10)
+    except ValueError:
+        return default
 
 
 def _normalize_ir_provider_key(raw: str | None, *, explicit: bool, device_id: str) -> str:
@@ -93,6 +115,7 @@ class IRManager:
         tuya_sender: TuyaIRProvider | None,
         ir_conversion_enabled: bool = False,
         ir_conversion_layer: IRConversionLayer | None = None,
+        tuya_ir_no_ack_mode: bool = False,
     ) -> None:
         self._device_id = device_id
         self._lg_engine = lg_engine
@@ -101,6 +124,7 @@ class IRManager:
         self._invalid_tuya_reason: str | None = (
             invalid_tuya_reason if normalized_provider_key == IR_PROVIDER_TUYA else None
         )
+        self._tuya_ir_no_ack_mode = normalized_provider_key == IR_PROVIDER_TUYA and bool(tuya_ir_no_ack_mode)
 
         conversion_layer = ir_conversion_layer if ir_conversion_enabled else None
 
@@ -143,6 +167,25 @@ class IRManager:
         if self._normalized_provider_key != IR_PROVIDER_TUYA:
             return IR_PROVIDER_BROADLINK
         return IR_PROVIDER_TUYA if self._tuya_can_send else "misconfigured"
+
+    @property
+    def tuya_assumes_no_ack(self) -> bool:
+        """When True, climate should not treat IR as producing timely device/power feedback."""
+
+        return self._tuya_ir_no_ack_mode
+
+    def tuya_send_debug(self) -> dict[str, Any]:
+        """Structured IR transport hints for diagnostics."""
+
+        if self._tuya_sender is None:
+            return {}
+        ts = self._tuya_sender
+        return {
+            "tuya_remote_entity": getattr(ts, "_remote_entity_id", ""),
+            "tuya_blocking_send": getattr(ts, "_blocking", False),
+            "prefers_localtuya_set_dp": ts.uses_localtuya_dp,
+            "configured_ir_dp": ts.configured_ir_dp,
+        }
 
     def resolve_to_ir_commands(self, state_dict: dict[str, Any]) -> tuple[list[IRCommand], str]:
         if self._normalized_provider_key == IR_PROVIDER_TUYA:
@@ -384,9 +427,34 @@ def create_ir_manager_from_entry(
     if normalized == IR_PROVIDER_TUYA and ir_conversion_enabled:
         conversion_layer = IRConversionLayer(IRConverter())
 
+    tuya_blocking = _opt_bool_from_entry(entry, CONF_TUYA_IR_SEND_BLOCKING, True)
+    tuya_no_ack = _opt_bool_from_entry(entry, CONF_TUYA_IR_NO_ACK_MODE, True)
+    ir_dp_cfg = _opt_int_from_entry(entry, CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)
+    raw_ld = entry.options.get(CONF_TUYA_LOCAL_DEVICE_ID, entry.data.get(CONF_TUYA_LOCAL_DEVICE_ID))
+    local_dev = raw_ld.strip() if isinstance(raw_ld, str) and raw_ld.strip() else None
+
     tuya_sender: TuyaIRProvider | None = None
     if isinstance(tuya_entity, str) and tuya_entity.strip():
-        tuya_sender = TuyaIRProvider(hass, tuya_entity)
+        tid_ent = tuya_entity.strip()
+        tuya_sender = TuyaIRProvider(
+            hass,
+            tid_ent,
+            blocking=tuya_blocking,
+            entry_id=entry.entry_id,
+            localtuya_device_id=local_dev,
+            ir_dp=ir_dp_cfg,
+        )
+        if normalized == IR_PROVIDER_TUYA and not local_dev:
+            _LOGGER.warning(
+                "[%s] Tuya IR: %s unset — using remote.send_command on %s. "
+                "If Local Tuya shows 'Detect control type failed', set YAML control_type ir "
+                "and AeroState option %s (often DP %s → localtuya.set_dp); see Hass LocalTuya services docs.",
+                entry.entry_id,
+                CONF_TUYA_LOCAL_DEVICE_ID,
+                tid_ent,
+                CONF_TUYA_LOCAL_DEVICE_ID,
+                ir_dp_cfg,
+            )
 
     invalid_tuya_reason: str | None = None
     if normalized == IR_PROVIDER_TUYA:
@@ -407,6 +475,7 @@ def create_ir_manager_from_entry(
         tuya_sender=tuya_sender,
         ir_conversion_enabled=ir_conversion_enabled,
         ir_conversion_layer=conversion_layer,
+        tuya_ir_no_ack_mode=tuya_no_ack if normalized == IR_PROVIDER_TUYA else False,
     )
 
 
@@ -421,6 +490,7 @@ def create_ir_manager_explicit(
     tuya_sender: TuyaIRProvider | None,
     ir_conversion_enabled: bool = False,
     ir_conversion_layer: IRConversionLayer | None = None,
+    tuya_ir_no_ack_mode: bool = False,
 ) -> IRManager:
     """Test helper."""
 
@@ -442,6 +512,7 @@ def create_ir_manager_explicit(
             tuya_sender=tuya_sender,
             ir_conversion_enabled=ir_conversion_enabled,
             ir_conversion_layer=conv_layer,
+            tuya_ir_no_ack_mode=tuya_ir_no_ack_mode,
         )
 
     return IRManager(
@@ -453,4 +524,5 @@ def create_ir_manager_explicit(
         broadlink_ir=broadlink_ir,
         tuya_engine=tuya_engine,
         tuya_sender=tuya_sender,
+        tuya_ir_no_ack_mode=False,
     )

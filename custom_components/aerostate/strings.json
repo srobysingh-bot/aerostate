@@ -78,7 +78,17 @@
           "name": "Display name",
           "ir_provider": "IR transport backend",
           "tuya_ir_entity": "Tuya IR remote entity (Local Tuya)",
-          "tuya_model_pack": "Tuya hex IR pack (table engine; separate from LG payloads)" "Another AeroState entry already uses this controller and model pack.",
+          "tuya_model_pack": "Tuya hex IR pack (table engine; separate from LG payloads)",
+          "ir_conversion_enabled": "Best-effort Broadlink to Tuya hex conversion",
+          "tuya_local_device_id": "Local Tuya device ID (optional; for localtuya.set_dp ir_send)",
+          "tuya_ir_dp": "IR send datapoint ID (often 201)",
+          "tuya_ir_no_ack_mode": "Tuya IR: skip power-sensor forced OFF; softer failure messaging",
+          "tuya_ir_send_blocking": "Tuya IR: wait for service completion (recommended)"
+        }
+      }
+    },
+    "error": {
+      "already_configured": "Another AeroState entry already uses this controller and model pack.",
       "invalid_model_pack": "The selected model pack is unavailable or invalid."
     }
   },
