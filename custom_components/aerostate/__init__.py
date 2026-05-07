@@ -5,7 +5,15 @@ from __future__ import annotations
 import logging
 from typing import Final
 
-from .const import CONF_BROADLINK_ENTITY, CONF_MODEL_PACK, DOMAIN
+from .const import (
+    CONF_BROADLINK_ENTITY,
+    CONF_IR_PROVIDER,
+    CONF_MODEL_PACK,
+    CONF_TUYA_MODEL_PACK,
+    DEFAULT_IR_PROVIDER,
+    DOMAIN,
+    IR_PROVIDER_TUYA,
+)
 
 try:
     from homeassistant.config_entries import ConfigEntry
@@ -138,6 +146,78 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
             hass.bus.async_fire(
                 EVENT_SELF_TEST_RESULT,
                 {"success": False, "reason": "entry_not_found", "entry_id": entry_id, "profile": profile},
+            )
+            return
+
+        ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
+        ir_provider = str(ir_provider or DEFAULT_IR_PROVIDER).strip().lower()
+        if ir_provider == IR_PROVIDER_TUYA:
+            from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
+
+            tuya_pack_id = entry.options.get(CONF_TUYA_MODEL_PACK, entry.data.get(CONF_TUYA_MODEL_PACK))
+            if not tuya_pack_id:
+                hass.bus.async_fire(
+                    EVENT_SELF_TEST_RESULT,
+                    {
+                        "success": False,
+                        "reason": "tuya_pack_missing",
+                        "entry_id": entry_id,
+                        "profile": profile,
+                    },
+                )
+                return
+
+            tuya_manager = create_tuya_ir_manager_from_entry(hass, entry)
+            if not await tuya_manager.probe_transport():
+                hass.bus.async_fire(
+                    EVENT_SELF_TEST_RESULT,
+                    {
+                        "success": False,
+                        "reason": "tuya_transport_unavailable",
+                        "entry_id": entry_id,
+                        "profile": profile,
+                    },
+                )
+                return
+
+            try:
+                await tuya_manager.async_send_climate_state({"hvac_mode": "off"})
+            except Exception as err:
+                async_report_validation_failed(hass, entry)
+                hass.bus.async_fire(
+                    EVENT_SELF_TEST_RESULT,
+                    {
+                        "success": False,
+                        "entry_id": entry_id,
+                        "profile": profile,
+                        "transport": "tuya_ir",
+                        "error": str(err),
+                    },
+                )
+                return
+
+            async_clear_validation_failed(hass, entry)
+            if DOMAIN in hass.data:
+                hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})["last_self_test"] = {
+                    "success": True,
+                    "entry_id": entry_id,
+                    "pack_id": tuya_pack_id,
+                    "profile": profile,
+                    "attempted": ["off"],
+                    "errors": [],
+                    "ir_transport_effective": "tuya_ir",
+                }
+            hass.bus.async_fire(
+                EVENT_SELF_TEST_RESULT,
+                {
+                    "success": True,
+                    "entry_id": entry_id,
+                    "pack_id": tuya_pack_id,
+                    "profile": profile,
+                    "attempted": ["off"],
+                    "errors": [],
+                    "transport": "tuya_ir",
+                },
             )
             return
 

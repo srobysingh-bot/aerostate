@@ -15,11 +15,22 @@ from .const import (
     CONF_BRAND,
     CONF_BROADLINK_ENTITY,
     CONF_HUM_SENSOR,
+    CONF_IR_PROVIDER,
     CONF_MODEL_PACK,
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_HOST,
+    CONF_TUYA_IR_DP,
+    CONF_TUYA_IR_SEND_BLOCKING,
+    CONF_TUYA_LOCAL_DEVICE_ID,
+    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_MODEL_PACK,
+    DEFAULT_IR_PROVIDER,
+    DEFAULT_TUYA_IR_DP,
     DOMAIN,
+    IR_PROVIDER_BROADLINK,
+    IR_PROVIDER_TUYA,
 )
 from .engines import create_engine
 from .flow_helpers import (
@@ -31,7 +42,7 @@ from .flow_helpers import (
 from .options_flow import AeroStateOptionsFlowHandler
 from .packs.registry import get_registry
 from .packs.truth import build_mode_truth
-from .providers import BroadlinkProvider
+from .providers.broadlink import BroadlinkProvider
 from .validation import build_safe_validation_states
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -47,8 +58,10 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize config flow."""
         self._selected_brand: str | None = None
         self._selected_pack_id: str | None = None
+        self._selected_ir_provider: str = DEFAULT_IR_PROVIDER
         self._broadlink_entity: str | None = None
         self._sensor_data: dict[str, Any] = {}
+        self._tuya_data: dict[str, Any] = {}
         self._validation_summary: dict[str, Any] = {
             "status": "not_run",
             "transport_ok": False,
@@ -62,23 +75,143 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Step 1: choose Broadlink remote entity."""
+        """Step 1: choose IR provider and controller details."""
         if user_input is not None:
+            provider = str(user_input.get(CONF_IR_PROVIDER, IR_PROVIDER_BROADLINK)).strip().lower()
+            self._selected_ir_provider = provider if provider in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA} else IR_PROVIDER_BROADLINK
+            if self._selected_ir_provider == IR_PROVIDER_TUYA:
+                return await self.async_step_tuya_device()
+            if not user_input.get(CONF_BROADLINK_ENTITY):
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=self._user_schema(),
+                    errors={"base": "broadlink_entity_required"},
+                )
             self._broadlink_entity = user_input[CONF_BROADLINK_ENTITY]
             return await self.async_step_brand()
 
-        if not self.hass.states.async_entity_ids("remote"):
-            return self.async_abort(reason="no_remote_entities")
-
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_BROADLINK_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="remote")
+            data_schema=self._user_schema(),
+        )
+
+    @staticmethod
+    def _user_schema() -> vol.Schema:
+        """Build the first-step provider/controller schema."""
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_IR_PROVIDER,
+                    default=IR_PROVIDER_BROADLINK,
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=IR_PROVIDER_BROADLINK, label="Broadlink IR"),
+                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR"),
+                        ],
                     ),
-                }
-            ),
+                ),
+                vol.Optional(CONF_BROADLINK_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="remote")
+                ),
+            }
+        )
+
+    async def async_step_tuya_device(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.FlowResult:
+        """Collect Tuya IR blaster connection details."""
+        from .packs.tuya.registry import get_tuya_pack, get_tuya_pack_options_for_ui
+        from .providers.tuya_ir_transport import TuyaIRTransport
+
+        errors: dict[str, str] = {}
+        tuya_pack_options = get_tuya_pack_options_for_ui()
+
+        if not tuya_pack_options:
+            return self.async_abort(reason="no_tuya_packs_available")
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_TUYA_LOCAL_DEVICE_ID): selector.TextSelector(),
+                vol.Required(CONF_TUYA_LOCAL_KEY): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD),
+                ),
+                vol.Required(CONF_TUYA_HOST): selector.TextSelector(),
+                vol.Optional(CONF_TUYA_IR_DP, default=str(DEFAULT_TUYA_IR_DP)): str,
+                vol.Required(CONF_TUYA_MODEL_PACK): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=tuya_pack_options),
+                ),
+                vol.Optional(CONF_TUYA_IR_SEND_BLOCKING, default=True): selector.BooleanSelector(),
+            },
+        )
+
+        if user_input is not None:
+            try:
+                get_tuya_pack(str(user_input.get(CONF_TUYA_MODEL_PACK, "")))
+            except KeyError:
+                errors["base"] = "tuya_pack_not_found"
+            else:
+                transport = TuyaIRTransport(
+                    hass=self.hass,
+                    device_id=user_input[CONF_TUYA_LOCAL_DEVICE_ID],
+                    local_key=user_input[CONF_TUYA_LOCAL_KEY],
+                    host=user_input[CONF_TUYA_HOST],
+                    dp=int(user_input.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)),
+                    send_blocking=bool(user_input.get(CONF_TUYA_IR_SEND_BLOCKING, True)),
+                )
+                if not await transport.probe_transport():
+                    errors["base"] = "tuya_transport_unavailable"
+                else:
+                    self._tuya_data = dict(user_input)
+                    self._selected_ir_provider = IR_PROVIDER_TUYA
+                    return await self.async_step_tuya_confirm()
+
+        return self.async_show_form(
+            step_id="tuya_device",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "dp_hint": "Default is 201. Only change if your device uses a different DP.",
+            },
+        )
+
+    async def async_step_tuya_confirm(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.FlowResult:
+        """Confirm Tuya setup and create the entry."""
+        from .packs.tuya.registry import get_tuya_pack
+
+        pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, ""))
+        try:
+            pack = get_tuya_pack(pack_id)
+        except KeyError:
+            return self.async_abort(reason="tuya_pack_not_found")
+
+        if user_input is not None:
+            device_id = str(self._tuya_data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""))
+            unique_id = f"tuya::{device_id}::{pack_id}"
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=f"AeroState Tuya IR - {pack.models[0] if pack.models else pack_id}",
+                data={
+                    **self._tuya_data,
+                    CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
+                    CONF_BRAND: pack.brand,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="tuya_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "pack_id": pack_id,
+                "host": self._tuya_data.get(CONF_TUYA_HOST, ""),
+                "device_id_short": str(self._tuya_data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""))[:8] + "...",
+                "pack_verified": "yes" if pack.verified else "no",
+            },
         )
 
     async def async_step_brand(

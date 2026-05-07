@@ -17,10 +17,12 @@ from .const import (
     CONF_MODEL_PACK,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_LOCAL_KEY,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
     DOMAIN,
+    IR_PROVIDER_TUYA,
 )
 from .engines import create_engine
 from .flow_helpers import describe_pack_limitations
@@ -30,7 +32,7 @@ from .packs.truth import build_mode_truth
 from .providers.ir_manager import create_ir_manager_from_entry
 from .validation import build_safe_validation_states
 
-TO_REDACT: set[str] = set()
+TO_REDACT: set[str] = {CONF_TUYA_LOCAL_KEY}
 
 
 async def async_get_config_entry_diagnostics(
@@ -177,5 +179,18 @@ async def async_get_config_entry_diagnostics(
         },
         "runtime_data_keys": list(hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).keys()),
     }
+
+    if str(configured_ir_provider or DEFAULT_IR_PROVIDER).strip().lower() == IR_PROVIDER_TUYA:
+        from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
+
+        try:
+            tuya_mgr = create_tuya_ir_manager_from_entry(hass, entry)
+            tuya_transport_ok = await tuya_mgr.probe_transport()
+            payload["tuya_ir"] = {
+                **tuya_mgr.describe(),
+                "transport_available": tuya_transport_ok,
+            }
+        except Exception as err:
+            payload["tuya_ir"] = {"error": str(err)}
 
     return async_redact_data(payload, TO_REDACT)

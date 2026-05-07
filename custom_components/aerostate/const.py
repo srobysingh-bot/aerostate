@@ -19,6 +19,8 @@ CONF_IR_CONVERSION_ENABLED = "ir_conversion_enabled"
 
 CONF_TUYA_IR_NO_ACK_MODE = "tuya_ir_no_ack_mode"
 CONF_TUYA_LOCAL_DEVICE_ID = "tuya_local_device_id"
+CONF_TUYA_LOCAL_KEY = "tuya_local_key"
+CONF_TUYA_HOST = "tuya_host"
 CONF_TUYA_IR_DP = "tuya_ir_dp"
 CONF_TUYA_IR_SEND_BLOCKING = "tuya_ir_send_blocking"
 

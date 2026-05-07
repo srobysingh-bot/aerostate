@@ -7,6 +7,14 @@ from types import SimpleNamespace
 import pytest
 
 import custom_components.aerostate as integration
+from custom_components.aerostate.const import (
+    CONF_IR_PROVIDER,
+    CONF_TUYA_HOST,
+    CONF_TUYA_LOCAL_DEVICE_ID,
+    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_MODEL_PACK,
+    IR_PROVIDER_TUYA,
+)
 from custom_components.aerostate.providers.ir_types import IRCommand
 
 
@@ -126,3 +134,45 @@ async def test_self_test_invalid_profile_falls_back_to_basic(monkeypatch) -> Non
     _, payload = hass.bus.events[-1]
     assert payload["profile"] == "basic"
     assert payload["mode_results"]["off"]["status"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_self_test_tuya_path_sends_off_and_returns(monkeypatch) -> None:
+    entry = SimpleNamespace(
+        entry_id="entry_tuya",
+        data={
+            CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
+            CONF_TUYA_MODEL_PACK: "tuya.test.v1",
+            CONF_TUYA_LOCAL_DEVICE_ID: "bf123",
+            CONF_TUYA_LOCAL_KEY: "secret",
+            CONF_TUYA_HOST: "192.0.2.10",
+        },
+        options={},
+    )
+    hass = _FakeHass(entry)
+    call = SimpleNamespace(data={"entry_id": "entry_tuya", "profile": "full"})
+
+    sent_states: list[dict] = []
+
+    class _TuyaManager:
+        async def probe_transport(self) -> bool:
+            return True
+
+        async def async_send_climate_state(self, state: dict) -> None:
+            sent_states.append(state)
+
+    monkeypatch.setattr(
+        "custom_components.aerostate.providers.tuya_ir_manager.create_tuya_ir_manager_from_entry",
+        lambda *_args, **_kwargs: _TuyaManager(),
+    )
+    monkeypatch.setattr(integration, "async_clear_validation_failed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(integration, "async_report_validation_failed", lambda *_args, **_kwargs: None)
+
+    await integration._async_handle_run_self_test(hass, call)
+
+    assert sent_states == [{"hvac_mode": "off"}]
+    event_type, payload = hass.bus.events[-1]
+    assert event_type == integration.EVENT_SELF_TEST_RESULT
+    assert payload["success"] is True
+    assert payload["transport"] == "tuya_ir"
+    assert payload["attempted"] == ["off"]

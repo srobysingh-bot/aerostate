@@ -23,11 +23,13 @@ from .const import (
     CONF_BRAND,
     CONF_BROADLINK_ENTITY,
     CONF_HUM_SENSOR,
+    CONF_IR_PROVIDER,
     CONF_MODEL_PACK,
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
-    CONF_TUYA_IR_ENTITY,
+    CONF_TUYA_MODEL_PACK,
+    DEFAULT_IR_PROVIDER,
     DEFAULT_NAME,
     DOMAIN,
     IR_PROVIDER_TUYA,
@@ -75,6 +77,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         self._pack = pack
         self._ir_manager = ir_manager
         self._engine = engine
+        self._tuya_ir_manager: Any | None = None
         self._last_requested_hvac_mode: HVACMode = HVACMode.COOL
 
         # State tracking
@@ -140,6 +143,19 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         if key in self._entry.options:
             return self._entry.options.get(key)
         return self._entry.data.get(key, default)
+
+    def _configured_ir_provider(self) -> str:
+        """Return the entry's requested IR provider."""
+        provider = str(self._entry_value(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER) or DEFAULT_IR_PROVIDER)
+        return provider.strip().lower()
+
+    def _get_tuya_ir_manager(self) -> Any:
+        """Return the cached standalone Tuya manager for this entity."""
+        if self._tuya_ir_manager is None:
+            from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
+
+            self._tuya_ir_manager = create_tuya_ir_manager_from_entry(self._hass, self._entry)
+        return self._tuya_ir_manager
 
     def _collect_temperatures_recursive(self, node: Any, out: set[int]) -> None:
         """Recursively walk command nodes and collect numeric temperature keys."""
@@ -677,6 +693,28 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 return
 
             _LOGGER.debug("Applying state: %s", state_dict)
+            if self._configured_ir_provider() == IR_PROVIDER_TUYA:
+                tuya_manager = self._get_tuya_ir_manager()
+                payload_hash = tuya_manager.payload_hash_for_state(state_dict)
+                if payload_hash == self._last_sent_payload_hash:
+                    _LOGGER.debug("Skipping Tuya command send; payload hash unchanged (%s)", payload_hash)
+                    self._last_sent_state = dict(state_dict)
+                    return
+
+                await tuya_manager.async_send_climate_state(state_dict)
+                self._last_sent_state = dict(state_dict)
+                self._last_sent_payload_hash = payload_hash
+                self._last_send_error = None
+                async_clear_command_failure(self._hass, self._entry)
+                self._sync_hvac_from_power_sensor()
+                self.async_write_ha_state()
+                _LOGGER.info(
+                    "Tuya AC command sent successfully for mode %s, temp %s",
+                    self._attr_hvac_mode,
+                    self._attr_target_temperature,
+                )
+                return
+
             ir_commands, payload_hash = self._ir_manager.resolve_to_ir_commands(state_dict)
 
             if payload_hash == self._last_sent_payload_hash:
@@ -744,16 +782,26 @@ async def async_setup_entry(
         registry = entry_data["registry"]
 
         # Get config values
+        ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
+        ir_provider = str(ir_provider or DEFAULT_IR_PROVIDER).strip().lower()
         broadlink_entity = entry.options.get(CONF_BROADLINK_ENTITY, entry.data.get(CONF_BROADLINK_ENTITY))
         brand = entry.data.get(CONF_BRAND)
         model_pack_id = entry.options.get(CONF_MODEL_PACK, entry.data.get(CONF_MODEL_PACK))
 
-        if not all([broadlink_entity, brand, model_pack_id]):
+        if ir_provider != IR_PROVIDER_TUYA and not all([broadlink_entity, brand, model_pack_id]):
             _LOGGER.error("Missing required config values")
             return False
 
         # Load model pack
-        pack = registry.get(model_pack_id)
+        if ir_provider == IR_PROVIDER_TUYA:
+            from .packs.tuya.registry import get_tuya_pack
+
+            tuya_pack_id = entry.options.get(CONF_TUYA_MODEL_PACK, entry.data.get(CONF_TUYA_MODEL_PACK))
+            pack = get_tuya_pack(tuya_pack_id).to_model_pack()
+            model_pack_id = pack.pack_id
+            brand = pack.brand
+        else:
+            pack = registry.get(model_pack_id)
         _LOGGER.debug(
             "Loaded pack: %s (brand: %s, models: %s)",
             model_pack_id,
@@ -765,20 +813,23 @@ async def async_setup_entry(
         engine = create_engine(pack)
         ir_manager = create_ir_manager_from_entry(hass, entry, lg_engine=engine, registry=registry)
 
-        is_connected = await ir_manager.probe_active_transport()
+        if ir_provider == IR_PROVIDER_TUYA:
+            from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
+
+            is_connected = await create_tuya_ir_manager_from_entry(hass, entry).probe_transport()
+        else:
+            is_connected = await ir_manager.probe_active_transport()
         if not is_connected:
             eff = ir_manager.effective_ir_mode()
-            if eff == "misconfigured":
+            if ir_provider == IR_PROVIDER_TUYA:
+                _LOGGER.warning(
+                    "Tuya IR transport is not available. Climate entity will be created but may not send commands.",
+                )
+            elif eff == "misconfigured":
                 _LOGGER.warning(
                     "[%s] IR transport probe failed (Tuya selected but incomplete). "
                     "Climate entity will load; fix Tuya IR options before sending.",
                     entry.entry_id,
-                )
-            elif eff == IR_PROVIDER_TUYA:
-                tu = entry.options.get(CONF_TUYA_IR_ENTITY, entry.data.get(CONF_TUYA_IR_ENTITY))
-                _LOGGER.warning(
-                    "Tuya IR entity %s is not available. Climate entity will be created but may not send commands.",
-                    tu,
                 )
             else:
                 _LOGGER.warning(
