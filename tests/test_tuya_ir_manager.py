@@ -42,7 +42,7 @@ def test_read_learned_codes_returns_dict_for_known_device(tmp_path) -> None:
     assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:1,2,3"}
 
 
-def test_read_learned_codes_returns_empty_for_missing_device(tmp_path) -> None:
+def test_read_learned_codes_uses_only_available_source_for_missing_device_name(tmp_path) -> None:
     hass = _hass_with_storage(
         tmp_path,
         {
@@ -53,7 +53,7 @@ def test_read_learned_codes_returns_empty_for_missing_device(tmp_path) -> None:
         },
     )
 
-    assert read_learned_codes(hass, "Living AC IR") == {}
+    assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:1,2,3"}
 
 
 def test_read_learned_codes_strips_commented_json_primary(tmp_path) -> None:
@@ -165,6 +165,21 @@ def test_read_learned_codes_uses_only_device_when_name_has_small_mismatch(tmp_pa
     hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
 
     assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:off"}
+
+
+def test_read_learned_codes_uses_only_available_source_when_name_differs(tmp_path) -> None:
+    storage_dir = tmp_path / ".storage"
+    storage_dir.mkdir()
+    data = {
+        "version": 1,
+        "minor_version": 1,
+        "key": "localtuya_rc_codes",
+        "data": {"Living AC IR": {"power_off": "raw:off"}},
+    }
+    (storage_dir / "localtuya_rc_codes").write_text(json.dumps(data), encoding="utf-8")
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Media room") == {"power_off": "raw:off"}
 
 
 def test_read_learned_codes_uses_portable_pack_without_localtuya_storage(tmp_path) -> None:

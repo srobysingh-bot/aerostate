@@ -137,22 +137,26 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Collect Tuya IR blaster connection details."""
         from .packs.tuya.registry import get_tuya_pack_options_for_ui
         from .providers.learned_code_resolver import get_coverage_summary
-        from .providers.localtuya_rc_storage import read_learned_codes
+        from .providers.localtuya_rc_storage import list_available_code_sources, read_learned_codes
 
         errors: dict[str, str] = {}
         tuya_pack_options = get_tuya_pack_options_for_ui()
+        code_sources = list_available_code_sources(self.hass)
 
         if not tuya_pack_options:
             return self.async_abort(reason="no_tuya_packs_available")
 
         default_pack = tuya_pack_options[0]["value"] if tuya_pack_options else ""
+        default_code_source = ""
+        if len(code_sources) == 1:
+            default_code_source = str(code_sources[0].get("name", "")).strip()
 
         schema = vol.Schema(
             {
                 vol.Required(CONF_TUYA_IR_ENTITY): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="remote"),
                 ),
-                vol.Optional(CONF_TUYA_DEVICE_NAME, default=DEFAULT_TUYA_DEVICE_NAME): selector.TextSelector(
+                vol.Optional(CONF_TUYA_DEVICE_NAME, default=default_code_source): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
                 ),
             },
@@ -166,7 +170,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             elif state.state in ("unavailable", "unknown"):
                 errors["base"] = "tuya_remote_entity_unavailable"
             else:
-                device_name = str(user_input.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME)).strip()
+                device_name = str(user_input.get(CONF_TUYA_DEVICE_NAME, "")).strip()
                 codes = read_learned_codes(self.hass, device_name)
                 if not codes:
                     errors["base"] = "tuya_no_learned_codes"
@@ -178,7 +182,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not errors:
                 self._tuya_data = dict(user_input)
                 self._tuya_data[CONF_TUYA_DEVICE_NAME] = str(
-                    self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
+                    self._tuya_data.get(CONF_TUYA_DEVICE_NAME, default_code_source),
                 ).strip()
                 self._tuya_data[CONF_TUYA_MODEL_PACK] = default_pack
                 self._selected_ir_provider = IR_PROVIDER_TUYA
@@ -194,7 +198,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "/config/aerostate_tuya_raw_codes/. If no portable pack is present, "
                     "it falls back to localtuya_rc storage/backups. On another Home Assistant, "
                     "export the working codes with aerostate.export_tuya_raw_codes and copy "
-                    "that JSON file into /config/aerostate_tuya_raw_codes/."
+                    "that JSON file into /config/aerostate_tuya_raw_codes/. Leave the pack/device "
+                    "name blank when there is only one code source."
                 ),
             },
         )

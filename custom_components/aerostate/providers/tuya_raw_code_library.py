@@ -78,6 +78,44 @@ def _load_portable_file(path: str) -> tuple[dict[str, Any], dict[str, str]]:
     return data, codes
 
 
+def _source_name_from_pack(filename: str, data: dict[str, Any]) -> str:
+    """Pick a human-usable source name from portable pack metadata."""
+    for key in ("device_name", "title", "pack_id"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return filename[:-5]
+
+
+def list_portable_raw_code_sources(hass) -> list[dict[str, Any]]:
+    """List available portable AeroState raw-code packs."""
+    library_dir = _library_dir(hass)
+    try:
+        filenames = sorted(
+            filename
+            for filename in os.listdir(library_dir)
+            if filename.endswith(".json")
+        )
+    except OSError:
+        return []
+
+    sources: list[dict[str, Any]] = []
+    for filename in filenames:
+        path = os.path.join(library_dir, filename)
+        data, codes = _load_portable_file(path)
+        if not codes:
+            continue
+        sources.append(
+            {
+                "name": _source_name_from_pack(filename, data),
+                "source": "portable",
+                "command_count": len(codes),
+                "path": path,
+            }
+        )
+    return sources
+
+
 def read_portable_raw_codes(hass, device_name: str) -> dict[str, str]:
     """Read raw codes from AeroState's portable library."""
     library_dir = _library_dir(hass)

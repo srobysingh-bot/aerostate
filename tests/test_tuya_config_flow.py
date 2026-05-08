@@ -242,6 +242,23 @@ async def test_tuya_device_step_accepts_portable_pack_without_localtuya_storage(
 
 
 @pytest.mark.asyncio
+async def test_tuya_device_step_accepts_only_available_source_when_name_differs(tmp_path) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path, device_codes={"power_off": "raw:off", "temp_24": "raw:24"})
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: "Media room",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tuya_confirm"
+    assert result["description_placeholders"]["total_codes"] == "2"
+
+
+@pytest.mark.asyncio
 async def test_tuya_confirm_step_shows_before_entry_creation(tmp_path) -> None:
     flow = AeroStateConfigFlow()
     flow.hass = _hass(tmp_path=tmp_path, device_codes={"power_off": "raw:off", "temp_24": "raw:24"})
