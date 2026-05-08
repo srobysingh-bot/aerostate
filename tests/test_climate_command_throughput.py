@@ -15,6 +15,7 @@ from homeassistant.components.climate import HVACMode
 
 from custom_components.aerostate.climate import AeroStateClimate
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
+from custom_components.aerostate.providers.learned_code_resolver import LearnedCodeNotAvailable
 
 from tests.ir_testing_utils import EchoTrackingIRManager
 
@@ -78,6 +79,16 @@ class _FailingIRManager(EchoTrackingIRManager):
         raise RuntimeError("send failed")
 
 
+class _UnconfirmedTuyaManager:
+    async def async_send_climate_state(self, _state):  # noqa: ANN001
+        raise RuntimeError("no ir ack")
+
+
+class _MissingCodeTuyaManager:
+    async def async_send_climate_state(self, _state):  # noqa: ANN001
+        raise LearnedCodeNotAvailable("No cool codes found")
+
+
 def _pack() -> ModelPack:
     return ModelPack(
         pack_id="lg.protocol.test.v1",
@@ -129,6 +140,19 @@ def _entry_with_power_sensor() -> SimpleNamespace:
             "model_pack": "lg.protocol.test.v1",
             "broadlink_entity": "remote.living",
             "power_sensor": "sensor.ac_power",
+        },
+        options={},
+    )
+
+
+def _tuya_entry() -> SimpleNamespace:
+    return SimpleNamespace(
+        entry_id="entry_1",
+        data={
+            "model_pack": "lg.protocol.test.v1",
+            "broadlink_entity": "remote.living",
+            "ir_provider": "tuya",
+            "tuya_ir_entity": "remote.tuya",
         },
         options={},
     )
@@ -188,6 +212,43 @@ async def test_failed_send_rolls_visible_state_back_to_last_sent() -> None:
     assert climate.target_temperature == 18
     assert climate.fan_mode == "auto"
     assert "send failed" in (climate.extra_state_attributes.get("last_command_error") or "")
+
+
+@pytest.mark.asyncio
+async def test_tuya_unconfirmed_send_preserves_requested_visible_state() -> None:
+    climate, _mgr = _build_climate(entry=_tuya_entry())
+    climate._tuya_ir_manager = _UnconfirmedTuyaManager()
+
+    await climate.async_set_hvac_mode(HVACMode.COOL)
+    await climate.async_set_temperature(temperature=23)
+    await climate.async_set_fan_mode("low")
+    await asyncio.sleep(0.06)
+
+    assert climate.hvac_mode == HVACMode.COOL
+    assert climate.target_temperature == 23
+    assert climate.fan_mode == "low"
+    assert climate._last_sent_state["hvac_mode"] == "cool"
+
+
+@pytest.mark.asyncio
+async def test_tuya_missing_code_rolls_visible_state_back() -> None:
+    climate, _mgr = _build_climate(entry=_tuya_entry())
+    climate._tuya_ir_manager = _MissingCodeTuyaManager()
+    climate._last_sent_state = {
+        "power": False,
+        "hvac_mode": "off",
+        "target_temperature": 18,
+        "fan_mode": "auto",
+        "swing_vertical": "off",
+        "swing_horizontal": "off",
+    }
+
+    await climate.async_set_hvac_mode(HVACMode.COOL)
+    await climate.async_set_temperature(temperature=23)
+    await asyncio.sleep(0.06)
+
+    assert climate.hvac_mode == HVACMode.OFF
+    assert climate.target_temperature == 18
 
 
 @pytest.mark.asyncio

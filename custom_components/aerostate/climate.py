@@ -775,12 +775,22 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 err,
                 state_dict,
             )
-            if self._ir_manager.preference_configured == IR_PROVIDER_TUYA:
+            if self._configured_ir_provider() == IR_PROVIDER_TUYA:
                 _LOGGER.warning(
                     "Tuya IR send did not succeed (MCU often does not report IR echo). desired=%s last_sent=%s",
                     state_dict,
                     self._last_sent_state,
                 )
+                from .providers.learned_code_resolver import LearnedCodeNotAvailable
+
+                if not isinstance(err, LearnedCodeNotAvailable):
+                    # For Tuya IR, transport errors are often "no ACK" after a
+                    # service send was attempted. Preserve the requested state
+                    # instead of snapping the UI back to Off; missing-code
+                    # errors still roll back because no command existed.
+                    self._last_sent_state = dict(state_dict)
+                    self.async_write_ha_state()
+                    return
             else:
                 _LOGGER.warning(
                     "AeroState desired state is not yet confirmed on device. desired=%s last_sent=%s",

@@ -83,7 +83,13 @@ class TuyaIRManager:
         self._last_known_power = wants_power
 
     async def _async_send_raw_command(self, raw_command: str) -> None:
-        """Send one learned raw command through the configured remote entity."""
+        """Send one learned raw command through the configured remote entity.
+
+        Local Tuya IR blasters often do not provide a useful acknowledgement
+        after an IR emission. Use a non-blocking service call so AeroState does
+        not roll back a valid desired state just because the MCU never echoes
+        the IR send.
+        """
         await self._hass.services.async_call(
             "remote",
             "send_command",
@@ -91,7 +97,7 @@ class TuyaIRManager:
                 "entity_id": self._remote_entity_id,
                 "command": raw_command,
             },
-            blocking=True,
+            blocking=False,
         )
 
     async def _async_notify_missing_code(self, state: dict[str, Any], err: LearnedCodeNotAvailable) -> None:

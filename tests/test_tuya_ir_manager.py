@@ -392,7 +392,7 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
         "remote",
         "send_command",
         {"entity_id": "remote.test_ir", "command": "raw:off"},
-        blocking=True,
+        blocking=False,
     )
 
 
