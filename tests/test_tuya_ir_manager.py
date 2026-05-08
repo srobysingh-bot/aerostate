@@ -247,6 +247,109 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_tuya_manager_sends_power_on_before_first_running_state(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                "Living AC IR": {
+                    "power_on": "raw:on",
+                    "power_off": "raw:off",
+                    "temp_24": "raw:cool24",
+                },
+            },
+        },
+    )
+    hass.services = SimpleNamespace(async_call=AsyncMock())
+    hass.states = SimpleNamespace(get=lambda _entity_id: MagicMock(state="on"))
+    manager = TuyaIRManager(hass, "remote.test_ir", "Living AC IR")
+
+    await manager.async_send_climate_state(
+        {"power": True, "hvac_mode": "cool", "target_temperature": 24, "fan_mode": "auto"},
+    )
+
+    assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        "raw:on",
+        "raw:cool24",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_sends_power_on_again_after_off(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                "Living AC IR": {
+                    "power_on": "raw:on",
+                    "power_off": "raw:off",
+                    "temp_24": "raw:cool24",
+                },
+            },
+        },
+    )
+    hass.services = SimpleNamespace(async_call=AsyncMock())
+    hass.states = SimpleNamespace(get=lambda _entity_id: MagicMock(state="on"))
+    manager = TuyaIRManager(hass, "remote.test_ir", "Living AC IR")
+
+    await manager.async_send_climate_state({"power": False, "hvac_mode": "off"})
+    await manager.async_send_climate_state(
+        {"power": True, "hvac_mode": "cool", "target_temperature": 24, "fan_mode": "auto"},
+    )
+
+    assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        "raw:off",
+        "raw:on",
+        "raw:cool24",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_does_not_repeat_power_on_when_already_running(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                "Living AC IR": {
+                    "power_on": "raw:on",
+                    "power_off": "raw:off",
+                    "temp_24": "raw:cool24",
+                    "temp_25": "raw:cool25",
+                },
+            },
+        },
+    )
+    hass.services = SimpleNamespace(async_call=AsyncMock())
+    hass.states = SimpleNamespace(get=lambda _entity_id: MagicMock(state="on"))
+    manager = TuyaIRManager(hass, "remote.test_ir", "Living AC IR")
+
+    await manager.async_send_climate_state(
+        {"power": True, "hvac_mode": "cool", "target_temperature": 24, "fan_mode": "auto"},
+    )
+    await manager.async_send_climate_state(
+        {"power": True, "hvac_mode": "cool", "target_temperature": 25, "fan_mode": "auto"},
+    )
+
+    assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        "raw:on",
+        "raw:cool24",
+        "raw:cool25",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_tuya_manager_notifies_when_learned_code_missing(tmp_path) -> None:
     hass = _hass_with_storage(
         tmp_path,

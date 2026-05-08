@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -13,6 +14,8 @@ from .learned_code_resolver import (
 from .localtuya_rc_storage import read_learned_codes
 
 _LOGGER = logging.getLogger(__name__)
+
+POWER_ON_SETTLE_SECONDS = 0.8
 
 
 class TuyaIRManager:
@@ -29,6 +32,7 @@ class TuyaIRManager:
         self._device_name = device_name
         self._learned_codes: dict[str, str] = {}
         self._codes_loaded = False
+        self._last_known_power: bool | None = None
 
     def _ensure_codes_loaded(self) -> None:
         """Load learned codes from storage on first use."""
@@ -49,6 +53,8 @@ class TuyaIRManager:
     async def async_send_climate_state(self, state: dict[str, Any]) -> None:
         """Resolve climate state to a learned raw IR code and send it."""
         self._ensure_codes_loaded()
+        hvac_mode = str(state.get("hvac_mode", "off")).lower()
+        wants_power = hvac_mode != "off" and bool(state.get("power", True))
         try:
             raw_command = resolve_learned_code(self._learned_codes, state)
         except LearnedCodeNotAvailable as err:
@@ -56,8 +62,28 @@ class TuyaIRManager:
             await self._async_notify_missing_code(state, err)
             raise
 
-        _LOGGER.debug("TuyaIRManager: sending state=%s via %s", state, self._remote_entity_id)
+        if wants_power and self._last_known_power is not True:
+            power_on = self._learned_codes.get("power_on")
+            if power_on:
+                _LOGGER.debug(
+                    "TuyaIRManager: sending power_on before state=%s via %s",
+                    state,
+                    self._remote_entity_id,
+                )
+                await self._async_send_raw_command(power_on)
+                await asyncio.sleep(POWER_ON_SETTLE_SECONDS)
+            else:
+                _LOGGER.debug(
+                    "TuyaIRManager: no power_on learned; sending state command directly for state=%s",
+                    state,
+                )
 
+        _LOGGER.debug("TuyaIRManager: sending state=%s via %s", state, self._remote_entity_id)
+        await self._async_send_raw_command(raw_command)
+        self._last_known_power = wants_power
+
+    async def _async_send_raw_command(self, raw_command: str) -> None:
+        """Send one learned raw command through the configured remote entity."""
         await self._hass.services.async_call(
             "remote",
             "send_command",
