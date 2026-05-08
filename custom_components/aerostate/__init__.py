@@ -376,6 +376,8 @@ async def _async_handle_export_tuya_raw_codes(hass: HomeAssistant, call: Service
     device_name = str(call.data.get("device_name", default_device_name)).strip()
     pack_id = str(call.data.get("pack_id", "")).strip() or None
     title = str(call.data.get("title", "")).strip() or None
+    destination = str(call.data.get("destination", "user_library")).strip()
+    destination = "bundled" if destination == "integration_bundle" else "user"
     codes = read_learned_codes(hass, device_name)
     if not codes:
         raise HomeAssistantError(f"No Tuya raw codes found for device name '{device_name}'")
@@ -387,6 +389,7 @@ async def _async_handle_export_tuya_raw_codes(hass: HomeAssistant, call: Service
             commands=codes,
             pack_id=pack_id,
             title=title,
+            destination=destination,
         )
     except Exception as err:
         raise HomeAssistantError(f"Failed to export Tuya raw codes: {err}") from err

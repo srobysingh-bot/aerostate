@@ -212,13 +212,20 @@ def _config_dir(hass) -> str:
 
 def read_learned_codes(hass, device_name: str) -> dict[str, str]:
     """Read raw Tuya IR codes from portable AeroState pack, then localtuya_rc cache."""
-    from .tuya_raw_code_library import read_portable_raw_codes
+    from .tuya_raw_code_library import ensure_portable_raw_code_pack, read_portable_raw_codes
 
     portable_codes = read_portable_raw_codes(hass, device_name)
     if portable_codes:
         return portable_codes
     localtuya_codes = read_localtuya_storage_codes(hass, device_name)
     if localtuya_codes:
+        ensure_portable_raw_code_pack(
+            hass,
+            device_name=device_name,
+            commands=localtuya_codes,
+            pack_id=f"{device_name}_learned_raw_codes" if device_name.strip() else None,
+            title=device_name or None,
+        )
         return localtuya_codes
 
     sources = list_available_code_sources(hass)
@@ -230,7 +237,16 @@ def read_learned_codes(hass, device_name: str) -> dict[str, str]:
                 device_name,
                 source_name,
             )
-            return read_portable_raw_codes(hass, source_name) or read_localtuya_storage_codes(hass, source_name)
+            fallback_codes = read_portable_raw_codes(hass, source_name) or read_localtuya_storage_codes(hass, source_name)
+            if fallback_codes:
+                ensure_portable_raw_code_pack(
+                    hass,
+                    device_name=source_name,
+                    commands=fallback_codes,
+                    pack_id=f"{source_name}_learned_raw_codes",
+                    title=source_name,
+                )
+            return fallback_codes
     return {}
 
 

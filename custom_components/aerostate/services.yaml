@@ -78,3 +78,13 @@ export_tuya_raw_codes:
       required: false
       selector:
         text:
+    destination:
+      name: Destination
+      description: user_library writes to /config/aerostate_tuya_raw_codes; integration_bundle writes inside the AeroState integration for shipping with the custom component.
+      required: false
+      default: user_library
+      selector:
+        select:
+          options:
+            - user_library
+            - integration_bundle

@@ -18,6 +18,7 @@ from custom_components.aerostate.providers.learned_code_resolver import (
 )
 from custom_components.aerostate.providers.localtuya_rc_storage import read_learned_codes
 from custom_components.aerostate.providers.tuya_ir_manager import TuyaIRManager
+from custom_components.aerostate.providers import tuya_raw_code_library
 from custom_components.aerostate.providers.tuya_raw_code_library import export_portable_raw_codes
 
 
@@ -40,6 +41,8 @@ def test_read_learned_codes_returns_dict_for_known_device(tmp_path) -> None:
     )
 
     assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:1,2,3"}
+    exported = tmp_path / "aerostate_tuya_raw_codes" / "living_ac_ir_learned_raw_codes.json"
+    assert exported.exists()
 
 
 def test_read_learned_codes_uses_only_available_source_for_missing_device_name(tmp_path) -> None:
@@ -205,6 +208,30 @@ def test_read_learned_codes_uses_portable_pack_without_localtuya_storage(tmp_pat
     }
 
 
+def test_read_learned_codes_uses_bundled_pack_without_ha_storage(tmp_path, monkeypatch) -> None:
+    bundled_dir = tmp_path / "bundled_raw_codes"
+    bundled_dir.mkdir()
+    (bundled_dir / "lg_pc09sq_nsj_v1.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "lg_pc09sq_nsj_v1",
+                "device_name": "LG PC09SQ NSJ",
+                "format": "tuya_remote_send_command_raw",
+                "commands": {"power_off": "raw:bundled_off", "temp_24": "raw:bundled_24"},
+            },
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(bundled_dir))
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "LG PC09SQ NSJ") == {
+        "power_off": "raw:bundled_off",
+        "temp_24": "raw:bundled_24",
+    }
+
+
 def test_read_learned_codes_uses_single_portable_pack_when_name_differs(tmp_path) -> None:
     library_dir = tmp_path / "aerostate_tuya_raw_codes"
     library_dir.mkdir()
@@ -266,6 +293,23 @@ def test_export_portable_raw_codes_writes_copyable_pack(tmp_path) -> None:
     assert data["pack_id"] == "lg_pc09sq_nsj_v1"
     assert data["device_name"] == "Living AC IR"
     assert data["commands"] == {"power_off": "raw:off"}
+
+
+def test_export_portable_raw_codes_can_write_integration_bundle(tmp_path, monkeypatch) -> None:
+    bundled_dir = tmp_path / "bundled_raw_codes"
+    monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(bundled_dir))
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    path = export_portable_raw_codes(
+        hass,
+        device_name="Living AC IR",
+        commands={"power_off": "raw:off"},
+        pack_id="lg_pc09sq_nsj_v1",
+        destination="bundled",
+    )
+
+    assert Path(path).parent == bundled_dir
+    assert json.loads(Path(path).read_text(encoding="utf-8"))["commands"] == {"power_off": "raw:off"}
 
 
 def test_resolve_power_off_returns_raw_string() -> None:
