@@ -102,6 +102,69 @@ def test_read_learned_codes_uses_most_recent_corrupt_backup_when_primary_missing
     assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:new"}
 
 
+def test_read_learned_codes_tries_older_backup_if_newest_is_unusable(tmp_path) -> None:
+    storage_dir = tmp_path / ".storage"
+    storage_dir.mkdir()
+    good_data = {
+        "version": 1,
+        "minor_version": 1,
+        "key": "localtuya_rc_codes",
+        "data": {"Living AC IR": {"power_off": "raw:good"}},
+    }
+    (storage_dir / "localtuya_rc_codes.corrupt.2026-05-05T121107").write_text(
+        json.dumps(good_data),
+        encoding="utf-8",
+    )
+    (storage_dir / "localtuya_rc_codes.corrupt.2026-05-08T130000").write_text(
+        "not-json",
+        encoding="utf-8",
+    )
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:good"}
+
+
+def test_read_learned_codes_recovers_device_block_from_damaged_backup(tmp_path) -> None:
+    storage_dir = tmp_path / ".storage"
+    storage_dir.mkdir()
+    damaged = '''
+"version": 1,
+"minor_version": 1,
+"key": "localtuya_rc_codes",
+"data": {
+  "Living AC IR": {
+    "power_off": "raw:off",
+    "temp_24_f3": "raw:cool"
+  }
+}
+'''
+    (storage_dir / "localtuya_rc_codes.corrupt.2026-05-08T130000").write_text(
+        damaged,
+        encoding="utf-8",
+    )
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Living AC IR") == {
+        "power_off": "raw:off",
+        "temp_24_f3": "raw:cool",
+    }
+
+
+def test_read_learned_codes_uses_only_device_when_name_has_small_mismatch(tmp_path) -> None:
+    storage_dir = tmp_path / ".storage"
+    storage_dir.mkdir()
+    data = {
+        "version": 1,
+        "minor_version": 1,
+        "key": "localtuya_rc_codes",
+        "data": {"Living AC IR ": {"power_off": "raw:off"}},
+    }
+    (storage_dir / "localtuya_rc_codes").write_text(json.dumps(data), encoding="utf-8")
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:off"}
+
+
 def test_resolve_power_off_returns_raw_string() -> None:
     assert resolve_learned_code({"power_off": "raw:off"}, {"hvac_mode": "off"}) == "raw:off"
 
