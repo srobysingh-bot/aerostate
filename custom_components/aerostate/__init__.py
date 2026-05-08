@@ -77,6 +77,7 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 PLATFORMS: Final = [Platform.CLIMATE]
 SERVICE_RUN_SELF_TEST: Final = "run_self_test"
 SERVICE_LEARN_IR_COMMAND: Final = "learn_ir_command"
+SERVICE_EXPORT_TUYA_RAW_CODES: Final = "export_tuya_raw_codes"
 EVENT_SELF_TEST_RESULT: Final = "aerostate_self_test_result"
 CONFIG_ENTRY_VERSION: Final = 1
 CONFIG_ENTRY_MINOR_VERSION: Final = 0
@@ -358,6 +359,41 @@ async def _async_handle_learn_ir_command(hass: HomeAssistant, call: ServiceCall)
     _LOGGER.info("Learned command '%s' for device '%s'", command_name, device_name)
 
 
+async def _async_handle_export_tuya_raw_codes(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Export learned Tuya raw codes into AeroState's portable code library."""
+    from .providers.localtuya_rc_storage import read_learned_codes
+    from .providers.tuya_raw_code_library import export_portable_raw_codes
+
+    entry_id = call.data.get("entry_id")
+    entry = hass.config_entries.async_get_entry(entry_id) if entry_id else None
+    default_device_name = DEFAULT_TUYA_DEVICE_NAME
+    if entry:
+        default_device_name = entry.options.get(
+            CONF_TUYA_DEVICE_NAME,
+            entry.data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
+        )
+
+    device_name = str(call.data.get("device_name", default_device_name)).strip()
+    pack_id = str(call.data.get("pack_id", "")).strip() or None
+    title = str(call.data.get("title", "")).strip() or None
+    codes = read_learned_codes(hass, device_name)
+    if not codes:
+        raise HomeAssistantError(f"No Tuya raw codes found for device name '{device_name}'")
+
+    try:
+        path = export_portable_raw_codes(
+            hass,
+            device_name=device_name,
+            commands=codes,
+            pack_id=pack_id,
+            title=title,
+        )
+    except Exception as err:
+        raise HomeAssistantError(f"Failed to export Tuya raw codes: {err}") from err
+
+    _LOGGER.info("Exported AeroState Tuya raw code pack to %s", path)
+
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the AeroState integration from YAML config (not used if config_flow).
 
@@ -383,6 +419,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             await _async_handle_learn_ir_command(hass, call)
 
         hass.services.async_register(DOMAIN, SERVICE_LEARN_IR_COMMAND, _async_learn_ir_command)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_EXPORT_TUYA_RAW_CODES):
+        async def _async_export_tuya_raw_codes(call: ServiceCall) -> None:
+            await _async_handle_export_tuya_raw_codes(hass, call)
+
+        hass.services.async_register(DOMAIN, SERVICE_EXPORT_TUYA_RAW_CODES, _async_export_tuya_raw_codes)
 
     return True
 

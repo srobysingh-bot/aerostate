@@ -47,3 +47,34 @@ learn_ir_command:
       default: Living AC IR
       selector:
         text:
+
+export_tuya_raw_codes:
+  name: Export Tuya raw codes
+  description: Export learned Tuya IR raw codes into AeroState's portable code library for use on another Home Assistant or Tuya IR blaster.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional AeroState Tuya config entry ID to use for the default device name.
+      required: false
+      selector:
+        text:
+    device_name:
+      name: Device name
+      description: localtuya_rc device name or AeroState portable pack device name.
+      required: false
+      default: Living AC IR
+      selector:
+        text:
+    pack_id:
+      name: Pack ID
+      description: Portable pack filename/id, for example lg_pc09sq_nsj_v1.
+      required: false
+      default: lg_pc09sq_nsj_v1
+      selector:
+        text:
+    title:
+      name: Title
+      description: Human-readable title for the exported code pack.
+      required: false
+      selector:
+        text:

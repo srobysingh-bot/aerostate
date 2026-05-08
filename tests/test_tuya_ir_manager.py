@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,6 +18,7 @@ from custom_components.aerostate.providers.learned_code_resolver import (
 )
 from custom_components.aerostate.providers.localtuya_rc_storage import read_learned_codes
 from custom_components.aerostate.providers.tuya_ir_manager import TuyaIRManager
+from custom_components.aerostate.providers.tuya_raw_code_library import export_portable_raw_codes
 
 
 def _hass_with_storage(tmp_path, data: dict) -> SimpleNamespace:
@@ -163,6 +165,72 @@ def test_read_learned_codes_uses_only_device_when_name_has_small_mismatch(tmp_pa
     hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
 
     assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:off"}
+
+
+def test_read_learned_codes_uses_portable_pack_without_localtuya_storage(tmp_path) -> None:
+    library_dir = tmp_path / "aerostate_tuya_raw_codes"
+    library_dir.mkdir()
+    (library_dir / "lg_pc09sq_nsj_v1.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "lg_pc09sq_nsj_v1",
+                "device_name": "Living AC IR",
+                "format": "tuya_remote_send_command_raw",
+                "commands": {"power_off": "raw:portable_off", "temp_24": "raw:portable_24"},
+            },
+        ),
+        encoding="utf-8",
+    )
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Living AC IR") == {
+        "power_off": "raw:portable_off",
+        "temp_24": "raw:portable_24",
+    }
+
+
+def test_read_learned_codes_prefers_portable_pack_over_localtuya_cache(tmp_path) -> None:
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {"Living AC IR": {"power_off": "raw:storage_off"}},
+        },
+    )
+    library_dir = tmp_path / "aerostate_tuya_raw_codes"
+    library_dir.mkdir()
+    (library_dir / "living_ac_ir.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "living_ac_ir",
+                "device_name": "Living AC IR",
+                "commands": {"power_off": "raw:portable_off"},
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:portable_off"}
+
+
+def test_export_portable_raw_codes_writes_copyable_pack(tmp_path) -> None:
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    path = export_portable_raw_codes(
+        hass,
+        device_name="Living AC IR",
+        commands={"power_off": "raw:off", "ignored": "not-sendable"},
+        pack_id="lg_pc09sq_nsj_v1",
+    )
+
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert data["pack_id"] == "lg_pc09sq_nsj_v1"
+    assert data["device_name"] == "Living AC IR"
+    assert data["commands"] == {"power_off": "raw:off"}
 
 
 def test_resolve_power_off_returns_raw_string() -> None:

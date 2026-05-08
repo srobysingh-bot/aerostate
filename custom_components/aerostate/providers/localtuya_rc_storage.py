@@ -149,8 +149,18 @@ def _config_dir(hass) -> str:
 
 
 def read_learned_codes(hass, device_name: str) -> dict[str, str]:
+    """Read raw Tuya IR codes from portable AeroState pack, then localtuya_rc cache."""
+    from .tuya_raw_code_library import read_portable_raw_codes
+
+    portable_codes = read_portable_raw_codes(hass, device_name)
+    if portable_codes:
+        return portable_codes
+    return read_localtuya_storage_codes(hass, device_name)
+
+
+def read_localtuya_storage_codes(hass, device_name: str) -> dict[str, str]:
     """
-    Read learned IR codes for a device from localtuya_rc storage.
+    Read learned IR codes for a device from localtuya_rc storage only.
 
     Tries the normal file first, then the most recent corrupt backup if the
     normal file is missing. Handles // commented JSON automatically.

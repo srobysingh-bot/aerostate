@@ -191,6 +191,7 @@ async def async_get_config_entry_diagnostics(
             from .packs.tuya.registry import get_tuya_pack
             from .providers.learned_code_resolver import get_coverage_summary
             from .providers.localtuya_rc_storage import read_learned_codes
+            from .providers.tuya_raw_code_library import describe_portable_library
 
             tuya_pack_id = entry.options.get(
                 CONF_TUYA_MODEL_PACK,
@@ -225,6 +226,7 @@ async def async_get_config_entry_diagnostics(
                 "remote_entity": tuya_remote_entity or None,
                 "remote_entity_state": tuya_remote_state.state if tuya_remote_state else None,
                 "device_name": tuya_device_name,
+                "portable_library": describe_portable_library(hass, str(tuya_device_name)),
                 "learned_code_coverage": get_coverage_summary(learned_codes),
                 "pack": tuya_pack_info,
             }
