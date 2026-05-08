@@ -19,6 +19,7 @@ try:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.const import Platform
     from homeassistant.core import HomeAssistant, ServiceCall
+    from homeassistant.exceptions import HomeAssistantError
     from homeassistant.helpers import entity_registry as er
 except ModuleNotFoundError:  # pragma: no cover - enables unit tests without HA runtime
     ConfigEntry = object
@@ -31,6 +32,9 @@ except ModuleNotFoundError:  # pragma: no cover - enables unit tests without HA 
 
     class ServiceCall:
         data: dict
+
+    class HomeAssistantError(Exception):
+        pass
 
     class _EntityRegistryFallback:
         @staticmethod
@@ -70,6 +74,7 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 PLATFORMS: Final = [Platform.CLIMATE]
 SERVICE_RUN_SELF_TEST: Final = "run_self_test"
+SERVICE_LEARN_IR_COMMAND: Final = "learn_ir_command"
 EVENT_SELF_TEST_RESULT: Final = "aerostate_self_test_result"
 CONFIG_ENTRY_VERSION: Final = 1
 CONFIG_ENTRY_MINOR_VERSION: Final = 0
@@ -326,6 +331,57 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
         hass.bus.async_fire(EVENT_SELF_TEST_RESULT, {"success": False, "reason": "unexpected_error"})
 
 
+async def _async_handle_learn_ir_command(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Learn and persist one Tuya IR command for an AeroState climate entity."""
+    entry_id = _resolve_entry_id_from_service(hass, call)
+    if not entry_id:
+        raise HomeAssistantError("Unable to resolve AeroState config entry from entity_id")
+
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if not entry:
+        raise HomeAssistantError(f"AeroState config entry not found: {entry_id}")
+
+    ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
+    ir_provider = str(ir_provider or DEFAULT_IR_PROVIDER).strip().lower()
+    if ir_provider != IR_PROVIDER_TUYA:
+        raise HomeAssistantError("IR learning is only available for AeroState Tuya IR entries")
+
+    hvac_mode = str(call.data.get("hvac_mode", "")).strip()
+    if not hvac_mode:
+        raise HomeAssistantError("hvac_mode is required")
+
+    raw_temperature = call.data.get("temperature")
+    temperature = int(raw_temperature) if raw_temperature not in (None, "") else None
+    raw_fan_mode = call.data.get("fan_mode")
+    fan_mode = str(raw_fan_mode).strip() if raw_fan_mode not in (None, "") else None
+    swing_on = bool(call.data.get("swing_on", False))
+
+    from .providers.tuya_ir_manager import TuyaIRManager, create_tuya_ir_manager_from_entry
+
+    try:
+        label = TuyaIRManager.build_label(
+            hvac_mode=hvac_mode,
+            temperature=temperature,
+            fan_mode=fan_mode,
+            swing_on=swing_on,
+        )
+    except ValueError as err:
+        raise HomeAssistantError(str(err)) from err
+
+    tuya_manager = create_tuya_ir_manager_from_entry(hass, entry)
+    try:
+        await tuya_manager.async_learn_command(
+            entry_id,
+            label,
+            hvac_mode,
+            temperature,
+            fan_mode,
+            swing_on,
+        )
+    except Exception as err:
+        raise HomeAssistantError(f"Failed to learn Tuya IR command '{label}': {err}") from err
+
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the AeroState integration from YAML config (not used if config_flow).
 
@@ -345,6 +401,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             await _async_handle_run_self_test(hass, call)
 
         hass.services.async_register(DOMAIN, SERVICE_RUN_SELF_TEST, _async_run_self_test)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_LEARN_IR_COMMAND):
+        async def _async_learn_ir_command(call: ServiceCall) -> None:
+            await _async_handle_learn_ir_command(hass, call)
+
+        hass.services.async_register(DOMAIN, SERVICE_LEARN_IR_COMMAND, _async_learn_ir_command)
 
     return True
 

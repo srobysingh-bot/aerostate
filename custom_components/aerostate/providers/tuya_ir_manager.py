@@ -1,20 +1,143 @@
-"""Standalone Tuya IR manager using remote.send_command with b64 payloads."""
+"""Standalone Tuya IR manager with persistent learned-code overlay."""
 
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
 from typing import Any
 
+from homeassistant.helpers.storage import Store
+
 _LOGGER = logging.getLogger(__name__)
+
+LEARNED_CODES_STORAGE_KEY = "aerostate_learned_codes"
+LEARNED_CODES_STORAGE_VERSION = 1
+
+
+class LearnedCodeStore:
+    """Persist learned raw IR payloads by entry and command label."""
+
+    def __init__(self, hass: Any) -> None:
+        self._store = Store(hass, LEARNED_CODES_STORAGE_VERSION, LEARNED_CODES_STORAGE_KEY)
+        self._data: dict[str, str] = {}
+        self._loaded = False
+
+    @staticmethod
+    def _key(entry_id: str, label: str) -> str:
+        return f"{entry_id}:{label}"
+
+    async def async_load(self) -> None:
+        """Load learned commands from Home Assistant storage."""
+        if self._loaded:
+            return
+        data = await self._store.async_load()
+        if isinstance(data, dict):
+            self._data = {
+                str(key): str(value)
+                for key, value in data.items()
+                if isinstance(value, str)
+            }
+        self._loaded = True
+
+    async def async_save(self, entry_id: str, label: str, raw_payload: str) -> None:
+        """Save one learned command."""
+        await self.async_load()
+        self._data[self._key(entry_id, label)] = raw_payload
+        await self._store.async_save(self._data)
+
+    def get(self, entry_id: str, label: str) -> str | None:
+        """Return a stored learned payload, if present."""
+        return self._data.get(self._key(entry_id, label))
+
+    async def async_delete(self, entry_id: str, label: str) -> None:
+        """Remove one learned command."""
+        await self.async_load()
+        self._data.pop(self._key(entry_id, label), None)
+        await self._store.async_save(self._data)
+
+    def list_labels(self, entry_id: str) -> list[str]:
+        """List learned labels for one config entry."""
+        prefix = f"{entry_id}:"
+        return sorted(key[len(prefix) :] for key in self._data if key.startswith(prefix))
 
 
 class TuyaIRManager:
-    """Send Tuya IR commands via remote.send_command using inline b64 payloads."""
+    """Resolve Tuya IR commands and send learned raw payloads when available."""
 
-    def __init__(self, hass: Any, remote_entity_id: str, pack: Any) -> None:
+    def __init__(
+        self,
+        hass: Any,
+        remote_entity_id: str,
+        pack: Any,
+        *,
+        entry_id: str = "",
+        learned_store: LearnedCodeStore | None = None,
+    ) -> None:
         self._hass = hass
         self._remote_entity_id = remote_entity_id
         self._pack = pack
+        self._entry_id = entry_id
+        self._learned_store = learned_store or LearnedCodeStore(hass)
+
+    @staticmethod
+    def _is_placeholder(key1: str) -> bool:
+        """Return True for known empty placeholder payloads."""
+        if key1 in {"AA==", "AQ=="}:
+            return True
+        try:
+            decoded = base64.b64decode(key1, validate=True)
+        except (binascii.Error, ValueError):
+            return False
+        return decoded.startswith(b"PLACEHOLDER:")
+
+    @staticmethod
+    def build_label(
+        hvac_mode: str,
+        temperature: int | float | str | None = None,
+        fan_mode: str | None = None,
+        swing_on: bool = False,
+    ) -> str:
+        """Build a Tuya pack label for a climate state."""
+        if hvac_mode == "off":
+            return "off"
+
+        swing = "on" if swing_on else "off"
+        fan = fan_mode or "auto"
+        if hvac_mode == "fan_only":
+            return f"fan_{fan}_swing_{swing}"
+
+        if temperature is None:
+            raise ValueError(f"Temperature is required for {hvac_mode} Tuya IR command")
+        return f"{hvac_mode}_{int(float(temperature))}_{fan}_swing_{swing}"
+
+    @staticmethod
+    def _extract_learned_payload(attributes: dict[str, Any], label: str) -> str | None:
+        """Extract a learned raw payload from common LocalTuyaIR attributes."""
+
+        def _payload_from(value: Any) -> str | None:
+            if isinstance(value, str) and value:
+                return value
+            if isinstance(value, dict):
+                if label in value:
+                    return _payload_from(value[label])
+                for key in ("raw", "payload", "code", "command", "last_learned_ir"):
+                    if key in value:
+                        found = _payload_from(value[key])
+                        if found:
+                            return found
+            if isinstance(value, list):
+                for item in value:
+                    found = _payload_from(item)
+                    if found:
+                        return found
+            return None
+
+        for attr_name in ("last_learned_ir", "learned_commands"):
+            found = _payload_from(attributes.get(attr_name))
+            if found:
+                return found
+        return None
 
     async def async_send_climate_state(self, state: dict[str, Any]) -> None:
         """Resolve and send one climate state."""
@@ -25,9 +148,34 @@ class TuyaIRManager:
         preset_mode = state.get("preset_mode")
 
         if preset_mode and preset_mode not in (None, "none", ""):
-            key1 = self._pack.resolve_by_label(f"{preset_mode}_on")
-            if key1 and key1 not in ("AA==", "AQ=="):
-                await self._send_b64(key1)
+            label = f"{preset_mode}_on"
+            if self._entry_id:
+                await self._learned_store.async_load()
+                learned = self._learned_store.get(self._entry_id, label)
+                if learned:
+                    await self._send_command(learned)
+                    return
+            key1 = self._pack.resolve_by_label(label)
+            if key1 and not self._is_placeholder(key1):
+                await self._send_command(key1)
+                return
+            raise KeyError(
+                f"IR command not learned yet for: {label}. "
+                "Use aerostate.learn_ir_command service first.",
+            )
+
+        label = self.build_label(
+            hvac_mode=str(hvac_mode),
+            temperature=temperature,
+            fan_mode=fan_mode,
+            swing_on=swing_on,
+        )
+
+        if self._entry_id:
+            await self._learned_store.async_load()
+            learned = self._learned_store.get(self._entry_id, label)
+            if learned:
+                await self._send_command(learned)
                 return
 
         key1 = self._pack.resolve(
@@ -37,17 +185,59 @@ class TuyaIRManager:
             swing_on=swing_on,
         )
 
-        if not key1 or key1 in ("AA==", "AQ=="):
+        if not key1 or self._is_placeholder(key1):
             raise KeyError(
-                f"No valid Tuya IR command for state: {state}. "
-                "Pack may have placeholder key1 values - run converter first.",
+                f"IR command not learned yet for: {label}. "
+                "Use aerostate.learn_ir_command service first.",
             )
 
-        await self._send_b64(key1)
+        await self._send_command(key1)
 
-    async def _send_b64(self, key1: str) -> None:
-        """Send one IR command via remote.send_command with b64: prefix."""
-        command = f"b64:{key1}"
+    async def async_learn_command(
+        self,
+        entry_id: str,
+        label: str,
+        hvac_mode: str,
+        temperature: int | None,
+        fan_mode: str | None,
+        swing_on: bool,
+    ) -> None:
+        """Learn one IR command from the physical remote and persist it."""
+        await self._hass.services.async_call(
+            "remote",
+            "learn_command",
+            {
+                "entity_id": self._remote_entity_id,
+                "device": "AeroState",
+                "command": [label],
+            },
+            blocking=True,
+        )
+
+        state = self._hass.states.get(self._remote_entity_id)
+        attributes = dict(getattr(state, "attributes", {}) or {}) if state else {}
+        raw_payload = self._extract_learned_payload(attributes, label)
+        if not raw_payload:
+            raise RuntimeError(
+                f"Learned IR payload for {label} was not exposed by {self._remote_entity_id}",
+            )
+
+        await self._learned_store.async_save(entry_id, label, raw_payload)
+        _LOGGER.info(
+            "TuyaIRManager: learned command label=%s mode=%s temp=%s fan=%s swing_on=%s",
+            label,
+            hvac_mode,
+            temperature,
+            fan_mode,
+            swing_on,
+        )
+
+    async def _send_command(self, payload: str) -> None:
+        """Send one IR command using the payload's native format."""
+        if payload.startswith(("raw:", "b64:")):
+            command = payload
+        else:
+            command = f"b64:{payload}"
 
         _LOGGER.debug(
             "TuyaIRManager: sending via remote.send_command entity=%s command_len=%d",
@@ -87,6 +277,7 @@ class TuyaIRManager:
             "remote_entity": self._remote_entity_id,
             "pack_id": self._pack.pack_id,
             "pack_verified": self._pack.verified,
+            "learned_labels": self._learned_store.list_labels(self._entry_id) if self._entry_id else [],
         }
 
 
@@ -106,4 +297,5 @@ def create_tuya_ir_manager_from_entry(hass: Any, entry: Any) -> TuyaIRManager:
         hass=hass,
         remote_entity_id=remote_entity,
         pack=pack,
+        entry_id=entry.entry_id,
     )
