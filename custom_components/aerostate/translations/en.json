@@ -17,10 +17,10 @@
       },
       "tuya_device": {
         "title": "Tuya IR Setup",
-        "description": "Select your Tuya IR remote entity and device name from storage.\n\n{storage_hint}",
+        "description": "Select the Tuya IR remote that will send commands and the AeroState raw-code pack/device name.\n\n{code_source_hint}",
         "data": {
           "tuya_ir_entity": "Tuya IR Remote Entity",
-          "tuya_device_name": "Device name in storage"
+          "tuya_device_name": "Raw-code pack or device name"
         }
       },
       "tuya_confirm": {
@@ -83,8 +83,8 @@
       "validation_transport_unavailable": "Broadlink transport is unavailable.",
       "validation_failed": "Validation commands failed. Check logs for details.",
       "broadlink_entity_required": "Choose a Broadlink remote for the Broadlink IR path.",
-      "tuya_no_learned_codes": "No learned codes found for this device name. Check .storage/localtuya_rc_codes and verify the device name matches exactly.",
-      "tuya_power_off_not_learned": "power_off code not found. Learn it first: use remote.learn_command and name it 'power_off' for device 'Living AC IR'.",
+      "tuya_no_learned_codes": "No AeroState portable raw-code pack or localtuya_rc learned codes were found for this name. Export codes on the Home Assistant where they work with aerostate.export_tuya_raw_codes, then copy the JSON file to /config/aerostate_tuya_raw_codes/ on this Home Assistant.",
+      "tuya_power_off_not_learned": "The selected raw-code source is missing power_off. Export a complete pack or learn/export the power_off command.",
       "tuya_remote_entity_not_found": "Remote entity not found in Home Assistant.",
       "tuya_remote_entity_unavailable": "Remote entity is unavailable. Check IR blaster power.",
       "tuya_transport_unavailable": "Cannot reach Tuya IR blaster. Check the selected Tuya IR remote entity.",
@@ -101,7 +101,7 @@
           "model_pack": "Model pack",
           "ir_provider": "IR transport",
           "tuya_ir_entity": "Tuya IR remote entity",
-          "tuya_device_name": "Device name in storage",
+          "tuya_device_name": "Raw-code pack or device name",
           "tuya_model_pack": "Tuya IR command pack",
           "temperature_sensor": "Room temperature sensor",
           "humidity_sensor": "Room humidity sensor",

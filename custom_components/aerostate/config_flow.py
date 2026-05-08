@@ -189,9 +189,12 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "storage_hint": (
-                    "The device name must match exactly how it appears in localtuya_rc storage "
-                    "(.storage/localtuya_rc_codes). Default is 'Living AC IR'."
+                "code_source_hint": (
+                    "AeroState first looks for portable raw-code JSON files in "
+                    "/config/aerostate_tuya_raw_codes/. If no portable pack is present, "
+                    "it falls back to localtuya_rc storage/backups. On another Home Assistant, "
+                    "export the working codes with aerostate.export_tuya_raw_codes and copy "
+                    "that JSON file into /config/aerostate_tuya_raw_codes/."
                 ),
             },
         )

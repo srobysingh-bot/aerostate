@@ -56,6 +56,24 @@ def _write_storage(tmp_path, device_codes: dict[str, str] | None) -> None:
     )
 
 
+def _write_portable_pack(tmp_path, *, device_name: str, commands: dict[str, str]) -> None:
+    library_dir = tmp_path / "aerostate_tuya_raw_codes"
+    library_dir.mkdir(exist_ok=True)
+    (library_dir / "lg_pc09sq_nsj_v1.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "lg_pc09sq_nsj_v1",
+                "title": "LG PC09SQ NSJ",
+                "device_name": device_name,
+                "format": "tuya_remote_send_command_raw",
+                "commands": commands,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+
 def _hass(*, states: dict[str, str] | None = None, tmp_path=None, device_codes: dict[str, str] | None = None) -> SimpleNamespace:
     if tmp_path is not None:
         _write_storage(tmp_path, device_codes if device_codes is not None else {"power_off": "raw:off"})
@@ -123,6 +141,14 @@ def test_tuya_device_step_has_human_readable_labels() -> None:
     for key, label in labels.items():
         assert label
         assert label != key
+    assert "Raw-code" in labels[CONF_TUYA_DEVICE_NAME]
+
+
+def test_tuya_device_step_explains_portable_code_source() -> None:
+    strings = json.loads(Path("custom_components/aerostate/strings.json").read_text(encoding="utf-8"))
+
+    assert "aerostate_tuya_raw_codes" in strings["config"]["error"]["tuya_no_learned_codes"]
+    assert "code_source_hint" in strings["config"]["step"]["tuya_device"]["description"]
 
 
 @pytest.mark.asyncio
@@ -191,6 +217,28 @@ async def test_tuya_device_step_rejects_missing_power_off(tmp_path) -> None:
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_device"
     assert result["errors"] == {"base": "tuya_power_off_not_learned"}
+
+
+@pytest.mark.asyncio
+async def test_tuya_device_step_accepts_portable_pack_without_localtuya_storage(tmp_path) -> None:
+    _write_portable_pack(
+        tmp_path,
+        device_name="LG PC09SQ NSJ",
+        commands={"power_off": "raw:off", "temp_24": "raw:24"},
+    )
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path, device_codes={})
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+        },
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tuya_confirm"
+    assert result["description_placeholders"]["total_codes"] == "2"
 
 
 @pytest.mark.asyncio

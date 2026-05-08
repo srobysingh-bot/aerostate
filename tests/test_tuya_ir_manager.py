@@ -190,6 +190,26 @@ def test_read_learned_codes_uses_portable_pack_without_localtuya_storage(tmp_pat
     }
 
 
+def test_read_learned_codes_uses_single_portable_pack_when_name_differs(tmp_path) -> None:
+    library_dir = tmp_path / "aerostate_tuya_raw_codes"
+    library_dir.mkdir()
+    (library_dir / "lg_pc09sq_nsj_v1.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "lg_pc09sq_nsj_v1",
+                "device_name": "LG PC09SQ NSJ",
+                "format": "tuya_remote_send_command_raw",
+                "commands": {"power_off": "raw:portable_off"},
+            },
+        ),
+        encoding="utf-8",
+    )
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:portable_off"}
+
+
 def test_read_learned_codes_prefers_portable_pack_over_localtuya_cache(tmp_path) -> None:
     hass = _hass_with_storage(
         tmp_path,

@@ -90,14 +90,13 @@ def read_portable_raw_codes(hass, device_name: str) -> dict[str, str]:
     except OSError:
         return {}
 
-    first_pack: tuple[str, dict[str, str]] | None = None
+    usable_packs: list[tuple[str, dict[str, str]]] = []
     for filename in filenames:
         path = os.path.join(library_dir, filename)
         data, codes = _load_portable_file(path)
         if not codes:
             continue
-        if first_pack is None:
-            first_pack = (filename, codes)
+        usable_packs.append((filename, codes))
         if _matches_pack(data, device_name) or _slug(filename[:-5]) == _slug(device_name):
             _LOGGER.info(
                 "Loaded %d Tuya raw codes from AeroState portable pack %s",
@@ -106,12 +105,14 @@ def read_portable_raw_codes(hass, device_name: str) -> dict[str, str]:
             )
             return codes
 
-    if first_pack and device_name.strip() == "":
-        filename, codes = first_pack
-        _LOGGER.info(
-            "Loaded %d Tuya raw codes from first AeroState portable pack %s",
+    if len(usable_packs) == 1:
+        filename, codes = usable_packs[0]
+        _LOGGER.warning(
+            "Loaded %d Tuya raw codes from the only AeroState portable pack %s; "
+            "configured name '%s' did not match pack metadata",
             len(codes),
             filename,
+            device_name,
         )
         return codes
     return {}
