@@ -18,9 +18,11 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
+    DEFAULT_TUYA_DEVICE_NAME,
 )
 from .flow_helpers import (
     build_entry_title,
@@ -47,6 +49,10 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
         """Build options form schema."""
         ir_default = config_entry.options.get(CONF_IR_PROVIDER, config_entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
         tuya_entity_default = config_entry.options.get(CONF_TUYA_IR_ENTITY, config_entry.data.get(CONF_TUYA_IR_ENTITY))
+        tuya_device_default = config_entry.options.get(
+            CONF_TUYA_DEVICE_NAME,
+            config_entry.data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
+        )
         tuya_pack_default = config_entry.options.get(CONF_TUYA_MODEL_PACK, config_entry.data.get(CONF_TUYA_MODEL_PACK))
 
         return vol.Schema(
@@ -74,6 +80,10 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_TUYA_IR_ENTITY,
                     default=tuya_entity_default,
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="remote")),
+                vol.Optional(
+                    CONF_TUYA_DEVICE_NAME,
+                    default=tuya_device_default,
+                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)),
                 vol.Optional(
                     CONF_TUYA_MODEL_PACK,
                     default=tuya_pack_default if tuya_pack_default else "",
@@ -213,6 +223,12 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                 new_options[CONF_TUYA_IR_ENTITY] = raw_tuya_entity.strip()
             else:
                 new_options.pop(CONF_TUYA_IR_ENTITY, None)
+
+            raw_tuya_device_name = user_input.get(CONF_TUYA_DEVICE_NAME)
+            if isinstance(raw_tuya_device_name, str) and raw_tuya_device_name.strip():
+                new_options[CONF_TUYA_DEVICE_NAME] = raw_tuya_device_name.strip()
+            else:
+                new_options.pop(CONF_TUYA_DEVICE_NAME, None)
 
             raw_tp = user_input.get(CONF_TUYA_MODEL_PACK)
             if isinstance(raw_tp, str) and raw_tp.strip():

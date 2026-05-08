@@ -16,16 +16,16 @@
         }
       },
       "tuya_device": {
-        "title": "Tuya IR Blaster Setup",
-        "description": "Select your Tuya IR remote entity and IR command pack.\n\nRequires LocalTuyaIR Remote Control integration with your IR blaster configured.",
+        "title": "Tuya IR Setup",
+        "description": "Select your Tuya IR remote entity and device name from storage.\n\n{storage_hint}",
         "data": {
           "tuya_ir_entity": "Tuya IR Remote Entity",
-          "tuya_model_pack": "Tuya IR Command Pack"
+          "tuya_device_name": "Device name in storage"
         }
       },
       "tuya_confirm": {
         "title": "Confirm Tuya IR Setup",
-        "description": "Review your Tuya IR setup before creating the entry.\n\n**Remote entity:** {remote_entity}\n**Pack:** {pack_label} ({pack_id})\n**Verified:** {pack_verified}\n**Commands in pack:** {pack_commands}\n\nClick Submit to create the entry.",
+        "description": "Device: **{device_name}**\n\nLearned codes found: {total_codes}\n\nCool mode (auto fan): temps {cool_temps_auto}\nCool mode (specific fan): temps {cool_temps_fan}\nFan-only codes: {fan_codes}\nPower off: {has_power_off}\nHeat mode: {heat_supported}\nDry mode: {dry_supported}\n\nGaps: {gaps}\n\nClick Submit to create the entry.",
         "data": {}
       },
       "brand": {
@@ -84,8 +84,10 @@
       "validation_transport_unavailable": "Broadlink transport is unavailable.",
       "validation_failed": "Validation commands failed. Check logs for details.",
       "broadlink_entity_required": "Choose a Broadlink remote for the Broadlink IR path.",
-      "tuya_remote_entity_not_found": "Selected remote entity not found in Home Assistant.",
-      "tuya_remote_entity_unavailable": "Selected remote entity is unavailable. Check that your IR blaster is powered on and connected.",
+      "tuya_no_learned_codes": "No learned codes found for this device name. Check .storage/localtuya_rc_codes and verify the device name matches exactly.",
+      "tuya_power_off_not_learned": "power_off code not found. Learn it first: use remote.learn_command and name it 'power_off' for device 'Living AC IR'.",
+      "tuya_remote_entity_not_found": "Remote entity not found in Home Assistant.",
+      "tuya_remote_entity_unavailable": "Remote entity is unavailable. Check IR blaster power.",
       "tuya_transport_unavailable": "Cannot reach Tuya IR blaster. Check the selected remote entity.",
       "tuya_pack_not_found": "Selected Tuya IR pack could not be loaded. Check packs/tuya/ directory."
     }
@@ -105,6 +107,7 @@
           "name": "Display name",
           "ir_provider": "IR transport backend",
           "tuya_ir_entity": "Tuya IR Remote Entity",
+          "tuya_device_name": "Device name in storage",
           "tuya_model_pack": "Tuya IR command pack"
         }
       }

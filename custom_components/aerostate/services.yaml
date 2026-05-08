@@ -25,49 +25,25 @@ run_self_test:
             - full
 
 learn_ir_command:
-  name: Learn IR Command
-  description: >
-    Put the Tuya IR blaster into learning mode for one AC state command.
-    Point your physical LG remote at the blaster and press the button.
-    The learned code is saved permanently and used for all future sends.
+  name: Learn IR command
+  description: Learn a new IR command into localtuya_rc storage for a Tuya AeroState entry.
   fields:
-    entity_id:
-      name: Climate Entity
-      description: The AeroState climate entity to learn for.
+    entry_id:
+      name: Config entry ID
+      description: AeroState config entry ID (required for Tuya entries)
       required: true
       selector:
-        entity:
-          domain: climate
-          integration: aerostate
-    hvac_mode:
-      name: HVAC Mode
-      description: "Mode to learn: cool, heat, dry, fan_only, auto, or off"
+        text:
+    command_name:
+      name: Command name
+      description: "Name to store the learned code under (e.g. 'heat_24_f3')"
       required: true
-      example: cool
       selector:
-        select:
-          options: [cool, heat, dry, fan_only, auto, off]
-    temperature:
-      name: Temperature
-      description: Target temperature (16-30). Leave empty for fan_only and off.
+        text:
+    device_name:
+      name: Device name
+      description: "localtuya_rc device name (default: Living AC IR)"
       required: false
+      default: Living AC IR
       selector:
-        number:
-          min: 16
-          max: 30
-          mode: box
-    fan_mode:
-      name: Fan Mode
-      description: "Fan speed: f1, f2, f3, f4, f5, or auto"
-      required: false
-      example: auto
-      selector:
-        select:
-          options: [f1, f2, f3, f4, f5, auto]
-    swing_on:
-      name: Swing On
-      description: Whether swing is enabled for this command.
-      required: false
-      default: false
-      selector:
-        boolean:
+        text:

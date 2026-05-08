@@ -20,9 +20,11 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
+    DEFAULT_TUYA_DEVICE_NAME,
     DOMAIN,
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
@@ -133,7 +135,9 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.FlowResult:
         """Collect Tuya IR blaster connection details."""
-        from .packs.tuya.registry import get_tuya_pack, get_tuya_pack_options_for_ui
+        from .packs.tuya.registry import get_tuya_pack_options_for_ui
+        from .providers.learned_code_resolver import get_coverage_summary
+        from .providers.localtuya_rc_storage import read_learned_codes
 
         errors: dict[str, str] = {}
         tuya_pack_options = get_tuya_pack_options_for_ui()
@@ -148,14 +152,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_TUYA_IR_ENTITY): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="remote"),
                 ),
-                vol.Required(CONF_TUYA_MODEL_PACK, default=default_pack): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=p["value"], label=p["label"])
-                            for p in tuya_pack_options
-                        ],
-                        mode="list",
-                    ),
+                vol.Optional(CONF_TUYA_DEVICE_NAME, default=DEFAULT_TUYA_DEVICE_NAME): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
                 ),
             },
         )
@@ -168,14 +166,21 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             elif state.state in ("unavailable", "unknown"):
                 errors["base"] = "tuya_remote_entity_unavailable"
             else:
-                selected_pack_id = str(user_input.get(CONF_TUYA_MODEL_PACK, ""))
-                try:
-                    get_tuya_pack(selected_pack_id)
-                except KeyError:
-                    errors["base"] = "tuya_pack_not_found"
+                device_name = str(user_input.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME)).strip()
+                codes = read_learned_codes(self.hass, device_name)
+                if not codes:
+                    errors["base"] = "tuya_no_learned_codes"
+                elif "power_off" not in codes:
+                    errors["base"] = "tuya_power_off_not_learned"
+                else:
+                    get_coverage_summary(codes)
 
             if not errors:
                 self._tuya_data = dict(user_input)
+                self._tuya_data[CONF_TUYA_DEVICE_NAME] = str(
+                    self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
+                ).strip()
+                self._tuya_data[CONF_TUYA_MODEL_PACK] = default_pack
                 self._selected_ir_provider = IR_PROVIDER_TUYA
                 return await self.async_step_tuya_confirm()
 
@@ -184,7 +189,10 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "service_hint": "Requires LocalTuyaIR Remote Control integration with your IR blaster configured.",
+                "storage_hint": (
+                    "The device name must match exactly how it appears in localtuya_rc storage "
+                    "(.storage/localtuya_rc_codes). Default is 'Living AC IR'."
+                ),
             },
         )
 
@@ -193,49 +201,44 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.FlowResult:
         """Confirm Tuya setup and create the entry."""
-        from .packs.tuya.registry import get_tuya_pack
+        from .providers.learned_code_resolver import get_coverage_summary
+        from .providers.localtuya_rc_storage import read_learned_codes
 
         if user_input is not None:
-            pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, ""))
             remote_entity = str(self._tuya_data.get(CONF_TUYA_IR_ENTITY, ""))
-            unique_id = f"tuya::{remote_entity}::{pack_id}"
+            device_name = str(self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME))
+            unique_id = f"tuya::{remote_entity}::{device_name}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
-            try:
-                pack = get_tuya_pack(pack_id)
-                title = f"{pack.models[0] if pack.models else pack_id} (Tuya IR)"
-            except KeyError:
-                title = f"AeroState Tuya IR - {pack_id}"
             return self.async_create_entry(
-                title=title,
+                title=f"AeroState Tuya IR - {device_name}",
                 data={
                     **self._tuya_data,
                     CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
                 },
             )
 
-        pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, ""))
-        remote_entity = str(self._tuya_data.get(CONF_TUYA_IR_ENTITY, ""))
-
-        try:
-            pack = get_tuya_pack(pack_id)
-            pack_label = pack.models[0] if pack.models else pack_id
-            pack_verified = "Yes" if pack.verified else "No - experimental pack"
-            pack_commands = str(len(pack.commands))
-        except KeyError:
-            pack_label = pack_id
-            pack_verified = "Unknown"
-            pack_commands = "Unknown"
+        device_name = str(self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME))
+        codes = read_learned_codes(self.hass, device_name)
+        coverage = get_coverage_summary(codes)
+        gaps = coverage["gaps"]
+        gaps_text = ", ".join(gaps[:3]) if gaps else "none"
+        if len(gaps) > 3:
+            gaps_text += f" (+{len(gaps) - 3} more)"
 
         return self.async_show_form(
             step_id="tuya_confirm",
             data_schema=vol.Schema({}),
             description_placeholders={
-                "remote_entity": remote_entity,
-                "pack_label": pack_label,
-                "pack_id": pack_id,
-                "pack_verified": pack_verified,
-                "pack_commands": pack_commands,
+                "device_name": device_name,
+                "total_codes": str(coverage["total_learned"]),
+                "cool_temps_auto": str(coverage["cool_temps_auto_fan"]),
+                "cool_temps_fan": str(coverage["cool_temps_with_specific_fan"]),
+                "fan_codes": str(len(coverage["fan_only_codes"])),
+                "has_power_off": "Yes" if coverage["has_power_off"] else "No",
+                "heat_supported": "No - not learned",
+                "dry_supported": "No - not learned",
+                "gaps": gaps_text,
             },
         )
 

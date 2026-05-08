@@ -170,5 +170,5 @@ async def test_self_test_tuya_path_sends_off_and_returns(monkeypatch) -> None:
     event_type, payload = hass.bus.events[-1]
     assert event_type == integration.EVENT_SELF_TEST_RESULT
     assert payload["success"] is True
-    assert payload["transport"] == "tuya_ir"
+    assert payload["transport"] == "tuya_ir_learned_codes"
     assert payload["attempted"] == ["off"]

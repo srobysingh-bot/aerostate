@@ -11,8 +11,10 @@ pytest.importorskip("homeassistant")
 from custom_components.aerostate import diagnostics
 from custom_components.aerostate.const import (
     CONF_IR_PROVIDER,
+    CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
+    DEFAULT_TUYA_DEVICE_NAME,
     IR_PROVIDER_TUYA,
 )
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
@@ -236,6 +238,7 @@ async def test_diagnostics_tuya_block_present_for_tuya_entry(monkeypatch) -> Non
         data={
             CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
             CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
         },
         options={},
@@ -243,12 +246,18 @@ async def test_diagnostics_tuya_block_present_for_tuya_entry(monkeypatch) -> Non
 
     monkeypatch.setattr(diagnostics, "get_registry", lambda: _FakeRegistry(_pack()))
     monkeypatch.setattr(diagnostics.er, "async_get", lambda _h: _FakeEntityRegistry())
+    monkeypatch.setattr(
+        "custom_components.aerostate.providers.localtuya_rc_storage.read_learned_codes",
+        lambda _hass, _device_name: {"power_off": "raw:off"},
+    )
 
     result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
 
     assert "tuya_ir" in result
-    assert result["tuya_ir"]["transport"] == "remote.send_command"
+    assert result["tuya_ir"]["transport"] == "tuya_ir_learned_codes"
     assert result["tuya_ir"]["remote_entity"] == "remote.test_ir"
+    assert result["tuya_ir"]["device_name"] == DEFAULT_TUYA_DEVICE_NAME
+    assert result["tuya_ir"]["learned_code_coverage"]["has_power_off"] is True
     payload_text = str(result)
     assert "secret" not in payload_text
     assert "tuya_local_key" not in payload_text

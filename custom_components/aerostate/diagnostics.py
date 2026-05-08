@@ -17,9 +17,11 @@ from .const import (
     CONF_MODEL_PACK,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
+    DEFAULT_TUYA_DEVICE_NAME,
     DOMAIN,
     IR_PROVIDER_TUYA,
 )
@@ -187,10 +189,16 @@ async def async_get_config_entry_diagnostics(
     if str(configured_ir_provider or DEFAULT_IR_PROVIDER).strip().lower() == IR_PROVIDER_TUYA:
         try:
             from .packs.tuya.registry import get_tuya_pack
+            from .providers.learned_code_resolver import get_coverage_summary
+            from .providers.localtuya_rc_storage import read_learned_codes
 
             tuya_pack_id = entry.options.get(
                 CONF_TUYA_MODEL_PACK,
                 entry.data.get(CONF_TUYA_MODEL_PACK),
+            )
+            tuya_device_name = entry.options.get(
+                CONF_TUYA_DEVICE_NAME,
+                entry.data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
             )
             tuya_remote_entity = entry.options.get(
                 CONF_TUYA_IR_ENTITY,
@@ -210,11 +218,14 @@ async def async_get_config_entry_diagnostics(
             except KeyError:
                 tuya_pack_info = {"error": f"Pack '{tuya_pack_id}' not found"}
 
+            learned_codes = read_learned_codes(hass, str(tuya_device_name))
             payload["tuya_ir"] = {
                 "provider": "tuya",
-                "transport": "remote.send_command",
+                "transport": "tuya_ir_learned_codes",
                 "remote_entity": tuya_remote_entity or None,
                 "remote_entity_state": tuya_remote_state.state if tuya_remote_state else None,
+                "device_name": tuya_device_name,
+                "learned_code_coverage": get_coverage_summary(learned_codes),
                 "pack": tuya_pack_info,
             }
         except Exception as err:

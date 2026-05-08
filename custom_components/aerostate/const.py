@@ -13,7 +13,9 @@ DEFAULT_NAME = "AeroState AC"
 
 CONF_IR_PROVIDER = "ir_provider"
 CONF_TUYA_IR_ENTITY = "tuya_ir_entity"
+CONF_TUYA_DEVICE_NAME = "tuya_device_name"
 CONF_TUYA_MODEL_PACK = "tuya_model_pack"
+DEFAULT_TUYA_DEVICE_NAME = "Living AC IR"
 
 CONF_IR_CONVERSION_ENABLED = "ir_conversion_enabled"
 

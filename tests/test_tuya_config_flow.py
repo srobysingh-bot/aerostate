@@ -15,8 +15,10 @@ pytest.importorskip("homeassistant")
 from custom_components.aerostate.config_flow import AeroStateConfigFlow
 from custom_components.aerostate.const import (
     CONF_IR_PROVIDER,
+    CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
+    DEFAULT_TUYA_DEVICE_NAME,
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
 )
@@ -36,10 +38,31 @@ class _States:
         return SimpleNamespace(state=state)
 
 
-def _hass(*, states: dict[str, str] | None = None) -> SimpleNamespace:
+def _write_storage(tmp_path, device_codes: dict[str, str] | None) -> None:
+    storage_dir = tmp_path / ".storage"
+    storage_dir.mkdir(exist_ok=True)
+    if device_codes is None:
+        return
+    (storage_dir / "localtuya_rc_codes").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "minor_version": 1,
+                "key": "localtuya_rc_codes",
+                "data": {DEFAULT_TUYA_DEVICE_NAME: device_codes},
+            },
+        ),
+        encoding="utf-8",
+    )
+
+
+def _hass(*, states: dict[str, str] | None = None, tmp_path=None, device_codes: dict[str, str] | None = None) -> SimpleNamespace:
+    if tmp_path is not None:
+        _write_storage(tmp_path, device_codes if device_codes is not None else {"power_off": "raw:off"})
     return SimpleNamespace(
         services=SimpleNamespace(has_service=lambda *_args: False),
         states=_States(states),
+        config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)) if tmp_path is not None else SimpleNamespace(path=lambda rel: rel),
         config_entries=SimpleNamespace(async_entries=lambda _domain: []),
     )
 
@@ -93,7 +116,7 @@ def test_tuya_device_step_has_human_readable_labels() -> None:
     labels = strings["config"]["step"]["tuya_device"]["data"]
     expected = {
         CONF_TUYA_IR_ENTITY,
-        CONF_TUYA_MODEL_PACK,
+        CONF_TUYA_DEVICE_NAME,
     }
 
     assert set(labels) == expected
@@ -110,7 +133,7 @@ async def test_tuya_device_step_rejects_missing_remote_entity() -> None:
     result = await flow.async_step_tuya_device(
         {
             CONF_TUYA_IR_ENTITY: "remote.missing",
-            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
         },
     )
 
@@ -127,7 +150,7 @@ async def test_tuya_device_step_rejects_unavailable_remote_entity() -> None:
     result = await flow.async_step_tuya_device(
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
-            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
         },
     )
 
@@ -137,32 +160,68 @@ async def test_tuya_device_step_rejects_unavailable_remote_entity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tuya_confirm_step_shows_before_entry_creation() -> None:
+async def test_tuya_device_step_rejects_empty_storage(tmp_path) -> None:
     flow = AeroStateConfigFlow()
-    flow.hass = _hass()
+    flow.hass = _hass(tmp_path=tmp_path, device_codes={})
 
     result = await flow.async_step_tuya_device(
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
-            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+        },
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tuya_device"
+    assert result["errors"] == {"base": "tuya_no_learned_codes"}
+
+
+@pytest.mark.asyncio
+async def test_tuya_device_step_rejects_missing_power_off(tmp_path) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path, device_codes={"temp_24": "raw:24"})
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+        },
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tuya_device"
+    assert result["errors"] == {"base": "tuya_power_off_not_learned"}
+
+
+@pytest.mark.asyncio
+async def test_tuya_confirm_step_shows_before_entry_creation(tmp_path) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path, device_codes={"power_off": "raw:off", "temp_24": "raw:24"})
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
         },
     )
 
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_confirm"
     placeholders = result["description_placeholders"]
-    assert placeholders["remote_entity"] == "remote.test_ir"
-    assert placeholders["pack_label"] == "PC09SQ NSJ"
+    assert placeholders["device_name"] == DEFAULT_TUYA_DEVICE_NAME
+    assert placeholders["total_codes"] == "2"
+    assert placeholders["has_power_off"] == "Yes"
 
 
 @pytest.mark.asyncio
-async def test_tuya_confirm_creates_entry() -> None:
+async def test_tuya_confirm_creates_entry(tmp_path) -> None:
     flow = AeroStateConfigFlow()
-    flow.hass = _hass()
+    flow.hass = _hass(tmp_path=tmp_path)
     flow.async_set_unique_id = AsyncMock()
     flow._abort_if_unique_id_configured = lambda: None
     flow._tuya_data = {
         CONF_TUYA_IR_ENTITY: "remote.test_ir",
+        CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
         CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
     }
 
@@ -171,5 +230,6 @@ async def test_tuya_confirm_creates_entry() -> None:
     assert result["type"] == "create_entry"
     assert result["data"][CONF_IR_PROVIDER] == IR_PROVIDER_TUYA
     assert result["data"][CONF_TUYA_IR_ENTITY] == "remote.test_ir"
+    assert result["data"][CONF_TUYA_DEVICE_NAME] == DEFAULT_TUYA_DEVICE_NAME
     assert result["data"][CONF_TUYA_MODEL_PACK] == "tuya.lg_pc09sq_nsj.v1"
     assert "broadlink_entity" not in result["data"]

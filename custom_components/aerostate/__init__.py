@@ -9,8 +9,10 @@ from .const import (
     CONF_BROADLINK_ENTITY,
     CONF_IR_PROVIDER,
     CONF_MODEL_PACK,
-    CONF_TUYA_MODEL_PACK,
+    CONF_TUYA_DEVICE_NAME,
+    CONF_TUYA_IR_ENTITY,
     DEFAULT_IR_PROVIDER,
+    DEFAULT_TUYA_DEVICE_NAME,
     DOMAIN,
     IR_PROVIDER_TUYA,
 )
@@ -159,19 +161,10 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
         if ir_provider == IR_PROVIDER_TUYA:
             from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
 
-            tuya_pack_id = entry.options.get(CONF_TUYA_MODEL_PACK, entry.data.get(CONF_TUYA_MODEL_PACK))
-            if not tuya_pack_id:
-                hass.bus.async_fire(
-                    EVENT_SELF_TEST_RESULT,
-                    {
-                        "success": False,
-                        "reason": "tuya_pack_missing",
-                        "entry_id": entry_id,
-                        "profile": profile,
-                    },
-                )
-                return
-
+            device_name = entry.options.get(
+                CONF_TUYA_DEVICE_NAME,
+                entry.data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
+            )
             tuya_manager = create_tuya_ir_manager_from_entry(hass, entry)
             if not await tuya_manager.probe_transport():
                 hass.bus.async_fire(
@@ -195,7 +188,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                         "success": False,
                         "entry_id": entry_id,
                         "profile": profile,
-                        "transport": "tuya_ir",
+                        "transport": "tuya_ir_learned_codes",
                         "error": str(err),
                     },
                 )
@@ -206,22 +199,22 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                 hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})["last_self_test"] = {
                     "success": True,
                     "entry_id": entry_id,
-                    "pack_id": tuya_pack_id,
+                    "device_name": device_name,
                     "profile": profile,
                     "attempted": ["off"],
                     "errors": [],
-                    "ir_transport_effective": "tuya_ir",
+                    "ir_transport_effective": "tuya_ir_learned_codes",
                 }
             hass.bus.async_fire(
                 EVENT_SELF_TEST_RESULT,
                 {
                     "success": True,
                     "entry_id": entry_id,
-                    "pack_id": tuya_pack_id,
+                    "device_name": device_name,
                     "profile": profile,
                     "attempted": ["off"],
                     "errors": [],
-                    "transport": "tuya_ir",
+                    "transport": "tuya_ir_learned_codes",
                 },
             )
             return
@@ -332,54 +325,37 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
 
 
 async def _async_handle_learn_ir_command(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Learn and persist one Tuya IR command for an AeroState climate entity."""
-    entry_id = _resolve_entry_id_from_service(hass, call)
-    if not entry_id:
-        raise HomeAssistantError("Unable to resolve AeroState config entry from entity_id")
+    """Ask localtuya_rc to learn one command name for a Tuya AeroState entry."""
+    entry_id = call.data.get("entry_id")
+    command_name = str(call.data.get("command_name", "")).strip()
+    device_name = str(call.data.get("device_name", DEFAULT_TUYA_DEVICE_NAME)).strip()
+    if not entry_id or not command_name:
+        raise HomeAssistantError("entry_id and command_name are required for learn_ir_command")
 
     entry = hass.config_entries.async_get_entry(entry_id)
     if not entry:
-        raise HomeAssistantError(f"AeroState config entry not found: {entry_id}")
+        raise HomeAssistantError(f"Config entry {entry_id} not found")
 
     ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
     ir_provider = str(ir_provider or DEFAULT_IR_PROVIDER).strip().lower()
     if ir_provider != IR_PROVIDER_TUYA:
         raise HomeAssistantError("IR learning is only available for AeroState Tuya IR entries")
 
-    hvac_mode = str(call.data.get("hvac_mode", "")).strip()
-    if not hvac_mode:
-        raise HomeAssistantError("hvac_mode is required")
+    tuya_entity = entry.options.get(CONF_TUYA_IR_ENTITY, entry.data.get(CONF_TUYA_IR_ENTITY))
+    if not tuya_entity:
+        raise HomeAssistantError("This entry has no Tuya IR entity configured")
 
-    raw_temperature = call.data.get("temperature")
-    temperature = int(raw_temperature) if raw_temperature not in (None, "") else None
-    raw_fan_mode = call.data.get("fan_mode")
-    fan_mode = str(raw_fan_mode).strip() if raw_fan_mode not in (None, "") else None
-    swing_on = bool(call.data.get("swing_on", False))
-
-    from .providers.tuya_ir_manager import TuyaIRManager, create_tuya_ir_manager_from_entry
-
-    try:
-        label = TuyaIRManager.build_label(
-            hvac_mode=hvac_mode,
-            temperature=temperature,
-            fan_mode=fan_mode,
-            swing_on=swing_on,
-        )
-    except ValueError as err:
-        raise HomeAssistantError(str(err)) from err
-
-    tuya_manager = create_tuya_ir_manager_from_entry(hass, entry)
-    try:
-        await tuya_manager.async_learn_command(
-            entry_id,
-            label,
-            hvac_mode,
-            temperature,
-            fan_mode,
-            swing_on,
-        )
-    except Exception as err:
-        raise HomeAssistantError(f"Failed to learn Tuya IR command '{label}': {err}") from err
+    await hass.services.async_call(
+        "remote",
+        "learn_command",
+        {
+            "entity_id": tuya_entity,
+            "device": device_name,
+            "command": command_name,
+        },
+        blocking=True,
+    )
+    _LOGGER.info("Learned command '%s' for device '%s'", command_name, device_name)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
