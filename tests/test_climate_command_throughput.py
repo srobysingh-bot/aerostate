@@ -73,6 +73,11 @@ class _PresetEchoEngine(_StateEchoEngine):
         return ["none", "jet"]
 
 
+class _FailingIRManager(EchoTrackingIRManager):
+    async def async_send_commands(self, commands):  # noqa: ANN001
+        raise RuntimeError("send failed")
+
+
 def _pack() -> ModelPack:
     return ModelPack(
         pack_id="lg.protocol.test.v1",
@@ -150,6 +155,39 @@ def _build_climate(
     climate._command_debounce_seconds = 0.01
     climate.async_write_ha_state = lambda: None  # type: ignore[assignment]
     return climate, mgr
+
+
+@pytest.mark.asyncio
+async def test_failed_send_rolls_visible_state_back_to_last_sent() -> None:
+    engine = _StateEchoEngine()
+    mgr = _FailingIRManager(engine)
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_entry(),
+        pack=_pack(),
+        ir_manager=mgr,
+        engine=engine,
+    )
+    climate._command_debounce_seconds = 0.01
+    climate.async_write_ha_state = lambda: None  # type: ignore[assignment]
+    climate._last_sent_state = {
+        "power": False,
+        "hvac_mode": "off",
+        "target_temperature": 18,
+        "fan_mode": "auto",
+        "swing_vertical": "off",
+        "swing_horizontal": "off",
+    }
+
+    await climate.async_set_hvac_mode(HVACMode.COOL)
+    await climate.async_set_temperature(temperature=29)
+    await climate.async_set_fan_mode("high")
+    await asyncio.sleep(0.06)
+
+    assert climate.hvac_mode == HVACMode.OFF
+    assert climate.target_temperature == 18
+    assert climate.fan_mode == "auto"
+    assert "send failed" in (climate.extra_state_attributes.get("last_command_error") or "")
 
 
 @pytest.mark.asyncio

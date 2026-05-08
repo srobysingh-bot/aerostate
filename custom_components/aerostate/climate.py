@@ -655,6 +655,41 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
 
         return state_dict
 
+    def _restore_visible_state_after_send_failure(self) -> None:
+        """Roll UI state back to the last command that actually sent."""
+        committed = self._last_sent_state
+        if not committed:
+            self._attr_hvac_mode = HVACMode.OFF
+            return
+
+        try:
+            self._attr_hvac_mode = HVACMode(str(committed.get("hvac_mode", "off")))
+        except ValueError:
+            self._attr_hvac_mode = HVACMode.OFF
+
+        temperature = committed.get("target_temperature")
+        if temperature is not None:
+            try:
+                self._attr_target_temperature = float(temperature)
+            except (TypeError, ValueError):
+                pass
+
+        fan_mode = committed.get("fan_mode")
+        if isinstance(fan_mode, str) and fan_mode in self._pack.capabilities.fan_modes:
+            self._attr_fan_mode = fan_mode
+
+        swing_vertical = committed.get("swing_vertical")
+        if isinstance(swing_vertical, str) and swing_vertical in self._supported_swing_vertical_modes:
+            self._attr_swing_mode = swing_vertical
+
+        swing_horizontal = committed.get("swing_horizontal")
+        if isinstance(swing_horizontal, str) and swing_horizontal in self._supported_swing_horizontal_modes:
+            self._attr_swing_horizontal_mode = swing_horizontal
+
+        preset_mode = committed.get("preset_mode")
+        if isinstance(preset_mode, str) and preset_mode in self._supported_preset_modes:
+            self._attr_preset_mode = preset_mode
+
     def _schedule_state_apply(self) -> None:
         """Coalesce rapid UI mutations and enqueue only latest desired state."""
         self._pending_state = self._build_state_dict()
@@ -751,8 +786,9 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                     "AeroState desired state is not yet confirmed on device. desired=%s last_sent=%s",
                     state_dict,
                     self._last_sent_state,
-                )
+            )
             async_report_command_failure(self._hass, self._entry)
+            self._restore_visible_state_after_send_failure()
             self.async_write_ha_state()
 
 

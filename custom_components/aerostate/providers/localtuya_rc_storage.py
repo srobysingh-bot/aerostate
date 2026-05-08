@@ -212,20 +212,30 @@ def _config_dir(hass) -> str:
 
 def read_learned_codes(hass, device_name: str) -> dict[str, str]:
     """Read raw Tuya IR codes from portable AeroState pack, then localtuya_rc cache."""
-    from .tuya_raw_code_library import ensure_portable_raw_code_pack, read_portable_raw_codes
+    from .tuya_raw_code_library import read_portable_raw_codes
 
     portable_codes = read_portable_raw_codes(hass, device_name)
+    localtuya_codes = read_localtuya_storage_codes(hass, device_name, log_missing=not bool(portable_codes))
+
+    if portable_codes and localtuya_codes:
+        merged_codes = dict(localtuya_codes)
+        merged_codes.update(portable_codes)
+        if len(merged_codes) > len(portable_codes):
+            _LOGGER.warning(
+                "AeroState portable raw-code pack for '%s' had %d commands; "
+                "localtuya_rc storage filled it to %d commands",
+                device_name,
+                len(portable_codes),
+                len(merged_codes),
+            )
+            _save_portable_copy(hass, device_name=device_name, commands=merged_codes)
+        return merged_codes
+
     if portable_codes:
         return portable_codes
-    localtuya_codes = read_localtuya_storage_codes(hass, device_name)
+
     if localtuya_codes:
-        ensure_portable_raw_code_pack(
-            hass,
-            device_name=device_name,
-            commands=localtuya_codes,
-            pack_id=f"{device_name}_learned_raw_codes" if device_name.strip() else None,
-            title=device_name or None,
-        )
+        _save_portable_copy(hass, device_name=device_name, commands=localtuya_codes)
         return localtuya_codes
 
     sources = list_available_code_sources(hass)
@@ -239,15 +249,26 @@ def read_learned_codes(hass, device_name: str) -> dict[str, str]:
             )
             fallback_codes = read_portable_raw_codes(hass, source_name) or read_localtuya_storage_codes(hass, source_name)
             if fallback_codes:
-                ensure_portable_raw_code_pack(
-                    hass,
-                    device_name=source_name,
-                    commands=fallback_codes,
-                    pack_id=f"{source_name}_learned_raw_codes",
-                    title=source_name,
-                )
+                _save_portable_copy(hass, device_name=source_name, commands=fallback_codes)
             return fallback_codes
     return {}
+
+
+def _save_portable_copy(hass, *, device_name: str, commands: dict[str, str]) -> None:
+    """Best-effort save of learned codes into AeroState's portable user library."""
+    from .tuya_raw_code_library import export_portable_raw_codes
+
+    clean_name = device_name.strip()
+    try:
+        export_portable_raw_codes(
+            hass,
+            device_name=clean_name,
+            commands=commands,
+            pack_id=f"{clean_name}_learned_raw_codes" if clean_name else None,
+            title=clean_name or None,
+        )
+    except Exception as err:
+        _LOGGER.warning("Could not save AeroState Tuya raw-code pack for '%s': %s", device_name, err)
 
 
 def list_available_code_sources(hass) -> list[dict[str, object]]:
@@ -300,7 +321,7 @@ def _iter_localtuya_source_codes(hass):
             yield name, codes, path
 
 
-def read_localtuya_storage_codes(hass, device_name: str) -> dict[str, str]:
+def read_localtuya_storage_codes(hass, device_name: str, *, log_missing: bool = True) -> dict[str, str]:
     """
     Read learned IR codes for a device from localtuya_rc storage only.
 
@@ -315,9 +336,11 @@ def read_localtuya_storage_codes(hass, device_name: str) -> dict[str, str]:
         result = _load_device_codes(primary_path, device_name)
         if result:
             return result
-        _LOGGER.warning("localtuya_rc_codes at %s was not usable - searching backups", primary_path)
+        if log_missing:
+            _LOGGER.warning("localtuya_rc_codes at %s was not usable - searching backups", primary_path)
     else:
-        _LOGGER.warning("localtuya_rc_codes not found at %s - searching for backup", primary_path)
+        if log_missing:
+            _LOGGER.warning("localtuya_rc_codes not found at %s - searching for backup", primary_path)
 
     try:
         candidates = [
@@ -329,14 +352,15 @@ def read_localtuya_storage_codes(hass, device_name: str) -> dict[str, str]:
         candidates = []
 
     if not candidates:
-        _LOGGER.error(
-            "No localtuya_rc_codes file found in %s. Fix: run this in Terminal:\n"
-            "  ls /config/.storage/localtuya_rc_codes*\n"
-            "If you see a .corrupt file, copy it:\n"
-            "  cp '/config/.storage/localtuya_rc_codes.corrupt.TIMESTAMP' "
-            "'/config/.storage/localtuya_rc_codes'",
-            storage_dir,
-        )
+        if log_missing:
+            _LOGGER.error(
+                "No localtuya_rc_codes file found in %s. Fix: run this in Terminal:\n"
+                "  ls /config/.storage/localtuya_rc_codes*\n"
+                "If you see a .corrupt file, copy it:\n"
+                "  cp '/config/.storage/localtuya_rc_codes.corrupt.TIMESTAMP' "
+                "'/config/.storage/localtuya_rc_codes'",
+                storage_dir,
+            )
         return {}
 
     candidates.sort(reverse=True)
@@ -353,5 +377,6 @@ def read_localtuya_storage_codes(hass, device_name: str) -> dict[str, str]:
         if result:
             return result
 
-    _LOGGER.error("No usable localtuya_rc_codes backup found in %s", storage_dir)
+    if log_missing:
+        _LOGGER.error("No usable localtuya_rc_codes backup found in %s", storage_dir)
     return {}

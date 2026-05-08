@@ -252,14 +252,14 @@ def test_read_learned_codes_uses_single_portable_pack_when_name_differs(tmp_path
     assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:portable_off"}
 
 
-def test_read_learned_codes_prefers_portable_pack_over_localtuya_cache(tmp_path) -> None:
+def test_read_learned_codes_merges_portable_pack_with_localtuya_cache(tmp_path) -> None:
     hass = _hass_with_storage(
         tmp_path,
         {
             "version": 1,
             "minor_version": 1,
             "key": "localtuya_rc_codes",
-            "data": {"Living AC IR": {"power_off": "raw:storage_off"}},
+            "data": {"Living AC IR": {"power_off": "raw:storage_off", "temp_29": "raw:storage_29"}},
         },
     )
     library_dir = tmp_path / "aerostate_tuya_raw_codes"
@@ -276,7 +276,10 @@ def test_read_learned_codes_prefers_portable_pack_over_localtuya_cache(tmp_path)
         encoding="utf-8",
     )
 
-    assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:portable_off"}
+    assert read_learned_codes(hass, "Living AC IR") == {
+        "power_off": "raw:portable_off",
+        "temp_29": "raw:storage_29",
+    }
 
 
 def test_export_portable_raw_codes_writes_copyable_pack(tmp_path) -> None:
