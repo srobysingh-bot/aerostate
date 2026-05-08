@@ -49,7 +49,11 @@ class TuyaIRManager:
     async def async_send_climate_state(self, state: dict[str, Any]) -> None:
         """Resolve climate state to a learned raw IR code and send it."""
         self._ensure_codes_loaded()
-        raw_command = resolve_learned_code(self._learned_codes, state)
+        try:
+            raw_command = resolve_learned_code(self._learned_codes, state)
+        except LearnedCodeNotAvailable as err:
+            await self._async_notify_missing_code(state, err)
+            raise
 
         _LOGGER.debug(
             "TuyaIRManager: sending state=%s via entity=%s raw_len=%d",
@@ -67,6 +71,37 @@ class TuyaIRManager:
             },
             blocking=True,
         )
+
+    async def _async_notify_missing_code(self, state: dict[str, Any], err: LearnedCodeNotAvailable) -> None:
+        """Create a visible HA notification for unsupported learned-code gaps."""
+        hvac_mode = str(state.get("hvac_mode", "unknown"))
+        temperature = state.get("target_temperature")
+        fan_mode = str(state.get("fan_mode") or "auto")
+        notification_id = (
+            "aerostate_tuya_missing_code_"
+            f"{self._remote_entity_id}_{hvac_mode}_{temperature}_{fan_mode}"
+        )
+        notification_id = "".join(ch if ch.isalnum() else "_" for ch in notification_id.lower())
+        message = (
+            f"{err}\n\n"
+            f"Device name: {self._device_name}\n"
+            f"Remote entity: {self._remote_entity_id}\n"
+            f"Requested state: {state}\n\n"
+            "Learn the missing command with remote.learn_command, then retry."
+        )
+        try:
+            await self._hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "AeroState Tuya IR command not learned",
+                    "message": message,
+                    "notification_id": notification_id,
+                },
+                blocking=False,
+            )
+        except Exception:
+            _LOGGER.exception("Failed to create Tuya IR learned-code notification")
 
     async def probe_transport(self) -> bool:
         """Check remote entity exists and learned codes are available."""

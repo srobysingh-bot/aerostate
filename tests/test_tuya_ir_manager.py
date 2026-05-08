@@ -133,3 +133,31 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
         {"entity_id": "remote.test_ir", "command": "raw:off"},
         blocking=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_notifies_when_learned_code_missing(tmp_path) -> None:
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {"Living AC IR": {"power_off": "raw:off"}},
+        },
+    )
+    hass.services = SimpleNamespace(async_call=AsyncMock())
+    hass.states = SimpleNamespace(get=lambda _entity_id: MagicMock(state="on"))
+    manager = TuyaIRManager(hass, "remote.test_ir", "Living AC IR")
+
+    with pytest.raises(LearnedCodeNotAvailable, match="Heat mode"):
+        await manager.async_send_climate_state(
+            {"hvac_mode": "heat", "target_temperature": 24, "fan_mode": "f3"},
+        )
+
+    hass.services.async_call.assert_awaited_once()
+    assert hass.services.async_call.await_args.args[:2] == (
+        "persistent_notification",
+        "create",
+    )
+    assert "Heat mode" in hass.services.async_call.await_args.args[2]["message"]
