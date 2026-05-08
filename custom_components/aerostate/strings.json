@@ -25,7 +25,7 @@
       },
       "tuya_confirm": {
         "title": "Confirm Tuya IR Setup",
-        "description": "Device: **{device_name}**\n\nLearned codes found: {total_codes}\n\nCool mode (auto fan): temps {cool_temps_auto}\nCool mode (specific fan): temps {cool_temps_fan}\nFan-only codes: {fan_codes}\nPower off: {has_power_off}\nHeat mode: {heat_supported}\nDry mode: {dry_supported}\n\nGaps: {gaps}\n\nClick Submit to create the entry.",
+        "description": "Raw-code source: **{device_name}**\nStatus: {code_source_status}\n\nLearned codes found: {total_codes}\n\nCool mode (auto fan): temps {cool_temps_auto}\nCool mode (specific fan): temps {cool_temps_fan}\nFan-only codes: {fan_codes}\nPower off: {has_power_off}\nHeat mode: {heat_supported}\nDry mode: {dry_supported}\n\nGaps: {gaps}\n\nClick Submit to create the entry.",
         "data": {}
       },
       "brand": {

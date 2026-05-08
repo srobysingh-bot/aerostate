@@ -186,7 +186,7 @@ async def test_tuya_device_step_rejects_unavailable_remote_entity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tuya_device_step_rejects_empty_storage(tmp_path) -> None:
+async def test_tuya_device_step_allows_pending_entry_when_no_codes_exist(tmp_path) -> None:
     flow = AeroStateConfigFlow()
     flow.hass = _hass(tmp_path=tmp_path, device_codes={})
 
@@ -198,12 +198,13 @@ async def test_tuya_device_step_rejects_empty_storage(tmp_path) -> None:
     )
 
     assert result["type"] == "form"
-    assert result["step_id"] == "tuya_device"
-    assert result["errors"] == {"base": "tuya_no_learned_codes"}
+    assert result["step_id"] == "tuya_confirm"
+    assert result["description_placeholders"]["total_codes"] == "0"
+    assert "No raw-code source found yet" in result["description_placeholders"]["code_source_status"]
 
 
 @pytest.mark.asyncio
-async def test_tuya_device_step_rejects_missing_power_off(tmp_path) -> None:
+async def test_tuya_device_step_allows_pending_entry_when_power_off_missing(tmp_path) -> None:
     flow = AeroStateConfigFlow()
     flow.hass = _hass(tmp_path=tmp_path, device_codes={"temp_24": "raw:24"})
 
@@ -215,8 +216,9 @@ async def test_tuya_device_step_rejects_missing_power_off(tmp_path) -> None:
     )
 
     assert result["type"] == "form"
-    assert result["step_id"] == "tuya_device"
-    assert result["errors"] == {"base": "tuya_power_off_not_learned"}
+    assert result["step_id"] == "tuya_confirm"
+    assert result["description_placeholders"]["total_codes"] == "1"
+    assert "missing power_off" in result["description_placeholders"]["code_source_status"]
 
 
 @pytest.mark.asyncio

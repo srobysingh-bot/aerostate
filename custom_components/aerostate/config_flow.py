@@ -60,6 +60,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._broadlink_entity: str | None = None
         self._sensor_data: dict[str, Any] = {}
         self._tuya_data: dict[str, Any] = {}
+        self._tuya_setup_warning: str = ""
         self._validation_summary: dict[str, Any] = {
             "status": "not_run",
             "transport_ok": False,
@@ -173,10 +174,11 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 device_name = str(user_input.get(CONF_TUYA_DEVICE_NAME, "")).strip()
                 codes = read_learned_codes(self.hass, device_name)
                 if not codes:
-                    errors["base"] = "tuya_no_learned_codes"
+                    self._tuya_setup_warning = "No raw-code source found yet. Setup can continue, but commands will not send until a portable pack is copied or localtuya_rc codes are learned."
                 elif "power_off" not in codes:
-                    errors["base"] = "tuya_power_off_not_learned"
+                    self._tuya_setup_warning = "Raw-code source found, but it is missing power_off. Setup can continue, but power-off will not work until that command is added."
                 else:
+                    self._tuya_setup_warning = ""
                     get_coverage_summary(codes)
 
             if not errors:
@@ -215,18 +217,19 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             remote_entity = str(self._tuya_data.get(CONF_TUYA_IR_ENTITY, ""))
             device_name = str(self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME))
-            unique_id = f"tuya::{remote_entity}::{device_name}"
+            unique_id = f"tuya::{remote_entity}::{device_name or 'auto'}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
+            title_suffix = device_name or remote_entity or "auto"
             return self.async_create_entry(
-                title=f"AeroState Tuya IR - {device_name}",
+                title=f"AeroState Tuya IR - {title_suffix}",
                 data={
                     **self._tuya_data,
                     CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
                 },
             )
 
-        device_name = str(self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME))
+        device_name = str(self._tuya_data.get(CONF_TUYA_DEVICE_NAME, ""))
         codes = read_learned_codes(self.hass, device_name)
         coverage = get_coverage_summary(codes)
         gaps = coverage["gaps"]
@@ -238,7 +241,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="tuya_confirm",
             data_schema=vol.Schema({}),
             description_placeholders={
-                "device_name": device_name,
+                "device_name": device_name or "Auto-detect",
+                "code_source_status": self._tuya_setup_warning or "Ready",
                 "total_codes": str(coverage["total_learned"]),
                 "cool_temps_auto": str(coverage["cool_temps_auto_fan"]),
                 "cool_temps_fan": str(coverage["cool_temps_with_specific_fan"]),
