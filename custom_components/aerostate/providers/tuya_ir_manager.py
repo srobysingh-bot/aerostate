@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+import re
 from typing import Any
 
 from homeassistant.helpers.storage import Store
@@ -13,6 +14,8 @@ _LOGGER = logging.getLogger(__name__)
 
 LEARNED_CODES_STORAGE_KEY = "aerostate_learned_codes"
 LEARNED_CODES_STORAGE_VERSION = 1
+LOCALTUYA_RC_CODES_STORAGE_KEY = "localtuya_rc_codes"
+LOCALTUYA_RC_CODES_STORAGE_VERSION = 1
 
 
 class LearnedCodeStore:
@@ -62,6 +65,93 @@ class LearnedCodeStore:
         return sorted(key[len(prefix) :] for key in self._data if key.startswith(prefix))
 
 
+class LocalTuyaRCLearnedCodeStore:
+    """Read learned raw IR payloads from LocalTuyaIR Remote Control storage."""
+
+    def __init__(self, hass: Any) -> None:
+        self._store = Store(hass, LOCALTUYA_RC_CODES_STORAGE_VERSION, LOCALTUYA_RC_CODES_STORAGE_KEY)
+        self._devices: dict[str, dict[str, str]] = {}
+        self._loaded = False
+
+    async def async_load(self) -> None:
+        """Load LocalTuyaIR learned codes if the integration storage exists."""
+        if self._loaded:
+            return
+        try:
+            data = await self._store.async_load()
+        except Exception as err:
+            _LOGGER.debug("LocalTuyaIR learned-code storage is not available: %s", err)
+            self._loaded = True
+            return
+        if isinstance(data, dict):
+            self._devices = {
+                str(device_name): {
+                    str(command_name): str(payload)
+                    for command_name, payload in commands.items()
+                    if isinstance(payload, str) and payload.startswith(("raw:", "b64:"))
+                }
+                for device_name, commands in data.items()
+                if isinstance(commands, dict)
+            }
+        self._loaded = True
+
+    @staticmethod
+    def aliases_for_label(label: str) -> list[str]:
+        """Return LocalTuyaIR command-name aliases for an AeroState pack label."""
+        if label == "off":
+            return ["power_off", "off"]
+
+        match = re.fullmatch(r"fan_(f[1-5]|auto)_swing_off", label)
+        if match:
+            fan = match.group(1)
+            return [f"fan_speed_{fan[1]}"] if fan.startswith("f") else ["fan_speed_auto"]
+
+        match = re.fullmatch(r"cool_(\d{2})_(f[1-5]|auto)_swing_off", label)
+        if not match:
+            return []
+
+        temp, fan = match.groups()
+        if fan == "auto":
+            return [f"temp_{int(temp)}"]
+
+        fan_num = fan[1]
+        return [
+            f"temp_{int(temp)}_{fan}",
+            f"ac_{int(temp)}_fan{fan_num}",
+        ]
+
+    def get(self, label: str) -> str | None:
+        """Return a matching LocalTuyaIR learned payload when unambiguous."""
+        aliases = set(self.aliases_for_label(label))
+        if not aliases:
+            return None
+
+        matches: list[tuple[str, str, str]] = []
+        for device_name, commands in self._devices.items():
+            for alias in aliases:
+                payload = commands.get(alias)
+                if payload:
+                    matches.append((device_name, alias, payload))
+
+        if not matches:
+            return None
+        if len(matches) > 1:
+            _LOGGER.warning(
+                "LocalTuyaIR learned code lookup for %s is ambiguous: %s",
+                label,
+                [(device, alias) for device, alias, _payload in matches],
+            )
+            return None
+        device_name, alias, payload = matches[0]
+        _LOGGER.debug(
+            "TuyaIRManager: using LocalTuyaIR learned code device=%s alias=%s label=%s",
+            device_name,
+            alias,
+            label,
+        )
+        return payload
+
+
 class TuyaIRManager:
     """Resolve Tuya IR commands and send learned raw payloads when available."""
 
@@ -73,12 +163,14 @@ class TuyaIRManager:
         *,
         entry_id: str = "",
         learned_store: LearnedCodeStore | None = None,
+        localtuya_rc_store: LocalTuyaRCLearnedCodeStore | None = None,
     ) -> None:
         self._hass = hass
         self._remote_entity_id = remote_entity_id
         self._pack = pack
         self._entry_id = entry_id
         self._learned_store = learned_store or LearnedCodeStore(hass)
+        self._localtuya_rc_store = localtuya_rc_store or LocalTuyaRCLearnedCodeStore(hass)
 
     @staticmethod
     def _is_placeholder(key1: str) -> bool:
@@ -149,12 +241,10 @@ class TuyaIRManager:
 
         if preset_mode and preset_mode not in (None, "none", ""):
             label = f"{preset_mode}_on"
-            if self._entry_id:
-                await self._learned_store.async_load()
-                learned = self._learned_store.get(self._entry_id, label)
-                if learned:
-                    await self._send_command(learned)
-                    return
+            learned = await self._async_get_learned_payload(label)
+            if learned:
+                await self._send_command(learned)
+                return
             key1 = self._pack.resolve_by_label(label)
             if key1 and not self._is_placeholder(key1):
                 await self._send_command(key1)
@@ -171,12 +261,10 @@ class TuyaIRManager:
             swing_on=swing_on,
         )
 
-        if self._entry_id:
-            await self._learned_store.async_load()
-            learned = self._learned_store.get(self._entry_id, label)
-            if learned:
-                await self._send_command(learned)
-                return
+        learned = await self._async_get_learned_payload(label)
+        if learned:
+            await self._send_command(learned)
+            return
 
         key1 = self._pack.resolve(
             hvac_mode=hvac_mode,
@@ -192,6 +280,19 @@ class TuyaIRManager:
             )
 
         await self._send_command(key1)
+
+    async def _async_get_learned_payload(self, label: str) -> str | None:
+        """Resolve a learned payload from AeroState storage, then LocalTuyaIR storage."""
+        if not self._entry_id:
+            return None
+
+        await self._learned_store.async_load()
+        learned = self._learned_store.get(self._entry_id, label)
+        if learned:
+            return learned
+
+        await self._localtuya_rc_store.async_load()
+        return self._localtuya_rc_store.get(label)
 
     async def async_learn_command(
         self,
