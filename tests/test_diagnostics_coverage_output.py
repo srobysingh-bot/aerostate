@@ -9,6 +9,14 @@ import pytest
 pytest.importorskip("homeassistant")
 
 from custom_components.aerostate import diagnostics
+from custom_components.aerostate.const import (
+    CONF_IR_PROVIDER,
+    CONF_TUYA_HOST,
+    CONF_TUYA_LOCAL_DEVICE_ID,
+    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_MODEL_PACK,
+    IR_PROVIDER_TUYA,
+)
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
 
 
@@ -35,6 +43,7 @@ class _FakeHass:
     def __init__(self) -> None:
         self.states = _FakeStates()
         self.data = {"aerostate": {"entry1": {"last_self_test": {"success": True}}}}
+        self.services = SimpleNamespace(has_service=lambda _domain, _service: True)
         self.services = SimpleNamespace(has_service=lambda *_: True)
 
 
@@ -218,3 +227,32 @@ async def test_diagnostics_protocol_support_summary(monkeypatch) -> None:
     assert summary["swing_support"]["horizontal_modes"] == ["off", "on"]
     assert "toggle form only" in summary["limitations"]
     assert "not exposed" in summary["limitations"]
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_tuya_block_present_for_tuya_entry(monkeypatch) -> None:
+    hass = _FakeHass()
+    entry = SimpleNamespace(
+        entry_id="entry1",
+        title="Tuya",
+        data={
+            CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
+            CONF_TUYA_LOCAL_DEVICE_ID: "bf1234567890",
+            CONF_TUYA_LOCAL_KEY: "secret",
+            CONF_TUYA_HOST: "192.0.2.10",
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
+        },
+        options={},
+    )
+
+    monkeypatch.setattr(diagnostics, "get_registry", lambda: _FakeRegistry(_pack()))
+    monkeypatch.setattr(diagnostics.er, "async_get", lambda _h: _FakeEntityRegistry())
+
+    result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
+
+    assert "tuya_ir" in result
+    assert isinstance(result["tuya_ir"]["localtuya_set_dp_available"], bool)
+    assert result["tuya_ir"]["device_id"] == "bf123456..."
+    payload_text = str(result)
+    assert "secret" not in payload_text
+    assert CONF_TUYA_LOCAL_KEY not in payload_text

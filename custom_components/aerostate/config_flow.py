@@ -58,6 +58,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize config flow."""
         self._selected_brand: str | None = None
         self._selected_pack_id: str | None = None
+        self._ir_provider: str = IR_PROVIDER_BROADLINK
         self._selected_ir_provider: str = DEFAULT_IR_PROVIDER
         self._broadlink_entity: str | None = None
         self._sensor_data: dict[str, Any] = {}
@@ -75,20 +76,14 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Step 1: choose IR provider and controller details."""
+        """Step 1: choose IR provider and branch to the provider-specific path."""
         if user_input is not None:
             provider = str(user_input.get(CONF_IR_PROVIDER, IR_PROVIDER_BROADLINK)).strip().lower()
-            self._selected_ir_provider = provider if provider in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA} else IR_PROVIDER_BROADLINK
-            if self._selected_ir_provider == IR_PROVIDER_TUYA:
+            self._ir_provider = provider if provider in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA} else IR_PROVIDER_BROADLINK
+            self._selected_ir_provider = self._ir_provider
+            if self._ir_provider == IR_PROVIDER_TUYA:
                 return await self.async_step_tuya_device()
-            if not user_input.get(CONF_BROADLINK_ENTITY):
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=self._user_schema(),
-                    errors={"base": "broadlink_entity_required"},
-                )
-            self._broadlink_entity = user_input[CONF_BROADLINK_ENTITY]
-            return await self.async_step_brand()
+            return await self.async_step_broadlink_remote()
 
         return self.async_show_form(
             step_id="user",
@@ -106,15 +101,36 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value=IR_PROVIDER_BROADLINK, label="Broadlink IR"),
-                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR"),
+                            selector.SelectOptionDict(value=IR_PROVIDER_BROADLINK, label="Broadlink IR (default)"),
+                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR (LocalTuya DP-201)"),
                         ],
+                        mode="list",
                     ),
                 ),
-                vol.Optional(CONF_BROADLINK_ENTITY): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="remote")
-                ),
             }
+        )
+
+    async def async_step_broadlink_remote(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.FlowResult:
+        """Broadlink path Step 2: choose Broadlink remote entity."""
+        if user_input is not None:
+            self._broadlink_entity = user_input[CONF_BROADLINK_ENTITY]
+            return await self.async_step_brand()
+
+        if not self.hass.states.async_entity_ids("remote"):
+            return self.async_abort(reason="no_remote_entities")
+
+        return self.async_show_form(
+            step_id="broadlink_remote",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_BROADLINK_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="remote"),
+                    ),
+                },
+            ),
         )
 
     async def async_step_tuya_device(
@@ -131,48 +147,68 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not tuya_pack_options:
             return self.async_abort(reason="no_tuya_packs_available")
 
+        default_pack = tuya_pack_options[0]["value"] if tuya_pack_options else ""
+
         schema = vol.Schema(
             {
-                vol.Required(CONF_TUYA_LOCAL_DEVICE_ID): selector.TextSelector(),
+                vol.Required(CONF_TUYA_LOCAL_DEVICE_ID): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                ),
                 vol.Required(CONF_TUYA_LOCAL_KEY): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD),
                 ),
-                vol.Required(CONF_TUYA_HOST): selector.TextSelector(),
-                vol.Optional(CONF_TUYA_IR_DP, default=str(DEFAULT_TUYA_IR_DP)): str,
-                vol.Required(CONF_TUYA_MODEL_PACK): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=tuya_pack_options),
+                vol.Required(CONF_TUYA_HOST): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                ),
+                vol.Optional(CONF_TUYA_IR_DP, default=str(DEFAULT_TUYA_IR_DP)): selector.NumberSelector(
+                    selector.NumberSelectorConfig(min=1, max=999, mode="box"),
+                ),
+                vol.Required(CONF_TUYA_MODEL_PACK, default=default_pack): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value=p["value"], label=p["label"])
+                            for p in tuya_pack_options
+                        ],
+                        mode="list",
+                    ),
                 ),
                 vol.Optional(CONF_TUYA_IR_SEND_BLOCKING, default=True): selector.BooleanSelector(),
             },
         )
 
         if user_input is not None:
-            try:
-                get_tuya_pack(str(user_input.get(CONF_TUYA_MODEL_PACK, "")))
-            except KeyError:
-                errors["base"] = "tuya_pack_not_found"
+            transport = TuyaIRTransport(
+                hass=self.hass,
+                device_id=str(user_input.get(CONF_TUYA_LOCAL_DEVICE_ID, "")),
+                local_key=str(user_input.get(CONF_TUYA_LOCAL_KEY, "")),
+                host=str(user_input.get(CONF_TUYA_HOST, "")),
+                dp=int(user_input.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)),
+                send_blocking=bool(user_input.get(CONF_TUYA_IR_SEND_BLOCKING, True)),
+            )
+            if not await transport.probe_transport():
+                errors["base"] = "tuya_set_dp_not_available"
             else:
-                transport = TuyaIRTransport(
-                    hass=self.hass,
-                    device_id=user_input[CONF_TUYA_LOCAL_DEVICE_ID],
-                    local_key=user_input[CONF_TUYA_LOCAL_KEY],
-                    host=user_input[CONF_TUYA_HOST],
-                    dp=int(user_input.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)),
-                    send_blocking=bool(user_input.get(CONF_TUYA_IR_SEND_BLOCKING, True)),
+                selected_pack_id = str(user_input.get(CONF_TUYA_MODEL_PACK, ""))
+                try:
+                    get_tuya_pack(selected_pack_id)
+                except KeyError:
+                    errors["base"] = "tuya_pack_not_found"
+
+            if not errors:
+                self._tuya_data = dict(user_input)
+                self._tuya_data[CONF_TUYA_IR_DP] = int(
+                    self._tuya_data.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP),
                 )
-                if not await transport.probe_transport():
-                    errors["base"] = "tuya_transport_unavailable"
-                else:
-                    self._tuya_data = dict(user_input)
-                    self._selected_ir_provider = IR_PROVIDER_TUYA
-                    return await self.async_step_tuya_confirm()
+                self._selected_ir_provider = IR_PROVIDER_TUYA
+                return await self.async_step_tuya_confirm()
 
         return self.async_show_form(
             step_id="tuya_device",
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "dp_hint": "Default is 201. Only change if your device uses a different DP.",
+                "dp_hint": "Default is 201. Only change if your Tuya IR blaster uses a different DP for IR send.",
+                "service_hint": "Requires LocalTuya integration with localtuya.set_dp service.",
             },
         )
 
@@ -183,34 +219,51 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Confirm Tuya setup and create the entry."""
         from .packs.tuya.registry import get_tuya_pack
 
-        pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, ""))
-        try:
-            pack = get_tuya_pack(pack_id)
-        except KeyError:
-            return self.async_abort(reason="tuya_pack_not_found")
-
         if user_input is not None:
+            pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, ""))
             device_id = str(self._tuya_data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""))
             unique_id = f"tuya::{device_id}::{pack_id}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
+            try:
+                pack = get_tuya_pack(pack_id)
+                title = f"{pack.models[0] if pack.models else pack_id} (Tuya IR)"
+            except KeyError:
+                title = f"AeroState Tuya IR - {pack_id}"
             return self.async_create_entry(
-                title=f"AeroState Tuya IR - {pack.models[0] if pack.models else pack_id}",
+                title=title,
                 data={
                     **self._tuya_data,
                     CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
-                    CONF_BRAND: pack.brand,
                 },
             )
+
+        pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, ""))
+        device_id = str(self._tuya_data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""))
+        host = str(self._tuya_data.get(CONF_TUYA_HOST, ""))
+        device_id_short = device_id[:8] + "..." if len(device_id) > 8 else device_id
+
+        try:
+            pack = get_tuya_pack(pack_id)
+            pack_label = pack.models[0] if pack.models else pack_id
+            pack_verified = "Yes" if pack.verified else "No - experimental pack"
+            pack_commands = str(len(pack.commands))
+        except KeyError:
+            pack_label = pack_id
+            pack_verified = "Unknown"
+            pack_commands = "Unknown"
 
         return self.async_show_form(
             step_id="tuya_confirm",
             data_schema=vol.Schema({}),
             description_placeholders={
+                "device_id_short": device_id_short,
+                "host": host,
+                "pack_label": pack_label,
                 "pack_id": pack_id,
-                "host": self._tuya_data.get(CONF_TUYA_HOST, ""),
-                "device_id_short": str(self._tuya_data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""))[:8] + "...",
-                "pack_verified": "yes" if pack.verified else "no",
+                "pack_verified": pack_verified,
+                "pack_commands": pack_commands,
+                "dp": str(self._tuya_data.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)),
             },
         )
 

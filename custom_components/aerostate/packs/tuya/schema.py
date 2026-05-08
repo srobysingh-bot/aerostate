@@ -52,14 +52,29 @@ class TuyaIRPack:
             return cmd.key1
         return None
 
+    def resolve_by_label(self, label: str) -> str | None:
+        """Look up key1 directly by command label for preset/special commands."""
+        for cmd in self.commands:
+            if cmd.label == label:
+                return cmd.key1
+        return None
+
     def to_model_pack(self) -> ModelPack:
         """Expose Tuya pack capabilities through the existing climate UI model."""
-        hvac_modes = sorted({cmd.hvac_mode for cmd in self.commands if cmd.hvac_mode != "off"})
+        hvac_modes = sorted(
+            {
+                cmd.hvac_mode
+                for cmd in self.commands
+                if cmd.hvac_mode not in {"off", "special"}
+            },
+        )
         fan_modes = sorted({cmd.fan_mode for cmd in self.commands if cmd.fan_mode})
         swing_modes = ["off", "on"] if any(cmd.swing_on for cmd in self.commands) else []
         commands_tree: dict[str, object] = {}
 
         for cmd in self.commands:
+            if cmd.hvac_mode == "special":
+                continue
             if cmd.hvac_mode == "off":
                 commands_tree["off"] = cmd.key1
                 continue
@@ -103,4 +118,3 @@ class TuyaIRPack:
             verified=self.verified,
             notes=self.notes,
         )
-

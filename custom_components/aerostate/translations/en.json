@@ -2,28 +2,35 @@
   "config": {
     "step": {
       "user": {
-        "title": "Select controller",
-        "description": "Choose the IR transport backend.",
+        "title": "Select IR transport",
+        "description": "Choose how AeroState will send IR commands to your air conditioner.",
         "data": {
-          "ir_provider": "IR transport backend",
+          "ir_provider": "IR Provider"
+        }
+      },
+      "broadlink_remote": {
+        "title": "Select Broadlink controller",
+        "description": "Choose the Broadlink remote entity used to send IR commands.",
+        "data": {
           "broadlink_entity": "Broadlink remote"
         }
       },
       "tuya_device": {
         "title": "Tuya IR Blaster Setup",
-        "description": "Enter your Tuya IR blaster connection details. You need the Device ID and Local Key from LocalTuya.",
+        "description": "Enter your Tuya IR blaster credentials.\n\n{dp_hint}\n\n{service_hint}",
         "data": {
           "tuya_local_device_id": "Tuya Device ID",
           "tuya_local_key": "Tuya Local Key",
           "tuya_host": "IR Blaster IP Address",
-          "tuya_ir_dp": "IR Send DP (default: 201)",
+          "tuya_ir_dp": "IR Send DP",
           "tuya_model_pack": "Tuya IR Command Pack",
           "tuya_ir_send_blocking": "Wait for send confirmation"
         }
       },
       "tuya_confirm": {
         "title": "Confirm Tuya IR Setup",
-        "description": "Device: {device_id_short} | Host: {host} | Pack: {pack_id} | Verified: {pack_verified}\n\nThis pack will be used to send IR commands directly to your Tuya IR blaster via DP 201."
+        "description": "Review your Tuya IR setup before creating the entry.\n\n**Device ID:** {device_id_short}\n**Host IP:** {host}\n**DP:** {dp}\n**Pack:** {pack_label} ({pack_id})\n**Verified:** {pack_verified}\n**Commands in pack:** {pack_commands}\n\nClick Submit to create the entry.",
+        "data": {}
       },
       "brand": {
         "title": "Select brand",
@@ -73,16 +80,17 @@
       "validation_transport_unavailable": "Broadlink transport is unavailable.",
       "validation_failed": "Validation commands failed. Check logs for details.",
       "already_configured": "This controller and model pack are already configured.",
-      "no_tuya_packs_available": "No Tuya IR packs are available.",
-      "tuya_set_dp_not_available": "LocalTuya localtuya.set_dp service not found. Ensure LocalTuya integration is installed.",
+      "no_tuya_packs_available": "No Tuya IR packs are available. Add a Tuya pack to packs/tuya/ first.",
+      "tuya_set_dp_not_available": "LocalTuya localtuya.set_dp service not found. Install and configure LocalTuya integration first.",
       "tuya_pack_not_found": "Selected Tuya IR pack is not available."
     },
     "error": {
       "validation_transport_unavailable": "Broadlink transport is unavailable.",
       "validation_failed": "Validation commands failed. Check logs for details.",
       "broadlink_entity_required": "Choose a Broadlink remote for the Broadlink IR path.",
+      "tuya_set_dp_not_available": "LocalTuya is not installed or localtuya.set_dp service is unavailable.",
       "tuya_transport_unavailable": "Cannot reach Tuya IR blaster. Check Device ID, Local Key, and IP address.",
-      "tuya_pack_not_found": "Selected Tuya IR pack is not available."
+      "tuya_pack_not_found": "Selected Tuya IR pack could not be loaded. Check packs/tuya/ directory."
     }
   },
   "options": {
@@ -156,11 +164,11 @@
     },
     "tuya_transport_unavailable": {
       "title": "Tuya IR blaster unreachable",
-      "description": "AeroState cannot reach the configured Tuya IR blaster. Check LocalTuya setup and IP address."
+      "description": "AeroState cannot reach the Tuya IR blaster. Check that LocalTuya is installed, the device is online, and the Device ID / Local Key / IP address are correct in Options."
     },
     "tuya_pack_missing": {
       "title": "Tuya IR pack missing",
-      "description": "The configured Tuya IR pack could not be loaded."
+      "description": "The configured Tuya IR pack could not be loaded. The pack may have been removed from packs/tuya/."
     }
   },
   "services": {

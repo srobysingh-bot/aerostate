@@ -28,6 +28,13 @@ class TuyaIRManager:
 
     def resolve_key1(self, state: dict[str, Any]) -> str:
         """Resolve a climate state dictionary to a Tuya key1 payload."""
+        preset_mode = state.get("preset_mode")
+        if preset_mode and preset_mode not in (None, "none", ""):
+            special_label = f"{preset_mode}_on"
+            key1 = self._pack.resolve_by_label(special_label)
+            if key1:
+                return key1
+
         hvac_mode = state.get("hvac_mode", "off")
         temperature = state.get("target_temperature")
         fan_mode = state.get("fan_mode")
@@ -55,6 +62,15 @@ class TuyaIRManager:
 
     async def async_send_climate_state(self, state: dict[str, Any]) -> None:
         """Resolve and send one climate state."""
+        preset_mode = state.get("preset_mode")
+        if preset_mode and preset_mode not in (None, "none", ""):
+            special_label = f"{preset_mode}_on"
+            key1 = self._pack.resolve_by_label(special_label)
+            if key1:
+                _LOGGER.debug("TuyaIRManager: resolved preset=%s to key1_len=%d", preset_mode, len(key1))
+                await self._transport.async_send_command(key1)
+                return
+
         key1 = self.resolve_key1(state)
         _LOGGER.debug("TuyaIRManager: resolved state=%s to key1_len=%d", state, len(key1))
         await self._transport.async_send_command(key1)
@@ -103,4 +119,3 @@ def create_tuya_ir_manager_from_entry(hass: Any, entry: Any) -> TuyaIRManager:
     )
 
     return TuyaIRManager(hass=hass, pack=pack, transport=transport)
-

@@ -60,6 +60,21 @@ def async_clear_validation_failed(hass: HomeAssistant, entry: ConfigEntry) -> No
     _delete_issue(hass, entry, "validation_failed")
 
 
+def async_report_tuya_transport_unavailable(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Create repair issue when Tuya IR blaster is unreachable."""
+    _create_issue(hass, entry, "tuya_transport_unavailable", "tuya_transport_unavailable")
+
+
+def async_clear_tuya_transport_unavailable(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clear Tuya transport issue once the blaster is reachable."""
+    _delete_issue(hass, entry, "tuya_transport_unavailable")
+
+
+def async_report_tuya_pack_missing(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Create repair issue when Tuya IR pack cannot be loaded."""
+    _create_issue(hass, entry, "tuya_pack_missing", "tuya_pack_missing")
+
+
 def async_validate_entry_runtime(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Create/delete repair issues based on current config/runtime state."""
     broadlink_entity = entry.options.get(CONF_BROADLINK_ENTITY, entry.data.get(CONF_BROADLINK_ENTITY))

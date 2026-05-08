@@ -17,8 +17,9 @@ from .const import (
     CONF_MODEL_PACK,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
-    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_HOST,
     CONF_TUYA_IR_ENTITY,
+    CONF_TUYA_LOCAL_DEVICE_ID,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
     DOMAIN,
@@ -32,7 +33,12 @@ from .packs.truth import build_mode_truth
 from .providers.ir_manager import create_ir_manager_from_entry
 from .validation import build_safe_validation_states
 
-TO_REDACT: set[str] = {CONF_TUYA_LOCAL_KEY}
+TO_REDACT: set[str] = set()
+
+
+def _without_secrets(values: dict[str, Any]) -> dict[str, Any]:
+    """Return diagnostics-safe entry data/options."""
+    return {key: value for key, value in values.items() if key != "tuya_local_key"}
 
 
 async def async_get_config_entry_diagnostics(
@@ -91,8 +97,8 @@ async def async_get_config_entry_diagnostics(
         "entry": {
             "entry_id": entry.entry_id,
             "title": entry.title,
-            "data": dict(entry.data),
-            "options": dict(entry.options),
+            "data": _without_secrets(dict(entry.data)),
+            "options": _without_secrets(dict(entry.options)),
         },
         "resolved": {
             "broadlink_entity": broadlink_entity,
@@ -181,14 +187,40 @@ async def async_get_config_entry_diagnostics(
     }
 
     if str(configured_ir_provider or DEFAULT_IR_PROVIDER).strip().lower() == IR_PROVIDER_TUYA:
-        from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
-
         try:
-            tuya_mgr = create_tuya_ir_manager_from_entry(hass, entry)
-            tuya_transport_ok = await tuya_mgr.probe_transport()
+            from .packs.tuya.registry import get_tuya_pack
+
+            tuya_pack_id = entry.options.get(
+                CONF_TUYA_MODEL_PACK,
+                entry.data.get(CONF_TUYA_MODEL_PACK),
+            )
+            tuya_device_id = entry.options.get(
+                CONF_TUYA_LOCAL_DEVICE_ID,
+                entry.data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""),
+            )
+            tuya_host = entry.options.get(
+                CONF_TUYA_HOST,
+                entry.data.get(CONF_TUYA_HOST, ""),
+            )
+            try:
+                tuya_pack = get_tuya_pack(tuya_pack_id)
+                tuya_pack_info: dict[str, Any] = {
+                    "pack_id": tuya_pack.pack_id,
+                    "brand": tuya_pack.brand,
+                    "models": tuya_pack.models,
+                    "verified": tuya_pack.verified,
+                    "command_count": len(tuya_pack.commands),
+                    "notes": tuya_pack.notes,
+                }
+            except KeyError:
+                tuya_pack_info = {"error": f"Pack '{tuya_pack_id}' not found"}
+
             payload["tuya_ir"] = {
-                **tuya_mgr.describe(),
-                "transport_available": tuya_transport_ok,
+                "provider": "tuya",
+                "device_id": tuya_device_id[:8] + "..." if tuya_device_id else None,
+                "host": tuya_host,
+                "pack": tuya_pack_info,
+                "localtuya_set_dp_available": hass.services.has_service("localtuya", "set_dp"),
             }
         except Exception as err:
             payload["tuya_ir"] = {"error": str(err)}

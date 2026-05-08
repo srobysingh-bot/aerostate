@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,6 +13,7 @@ from custom_components.aerostate.providers.ir_types import IRCommand
 from custom_components.aerostate.providers.tuya_ir import TuyaIRProvider
 from custom_components.aerostate.providers.tuya_ir_manager import TuyaIRManager
 from custom_components.aerostate.providers.tuya_ir_transport import TuyaIRTransport
+from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
 from custom_components.aerostate.packs.tuya.schema import TuyaIRCommand, TuyaIRPack
 
 
@@ -95,6 +97,25 @@ async def test_standalone_tuya_transport_sends_dp201_json_string() -> None:
     assert spy.call_args.kwargs == {"blocking": False}
 
 
+def test_tuya_transport_payload_shape() -> None:
+    transport = TuyaIRTransport(
+        MagicMock(),
+        device_id="bf123",
+        local_key="secret",
+        host="192.0.2.10",
+    )
+
+    payload = json.loads(transport._build_dp201_payload("AQID"))
+
+    assert payload == {
+        "control": "send_ir",
+        "head": "",
+        "key1": "AQID",
+        "type": 0,
+        "delay": 300,
+    }
+
+
 @pytest.mark.asyncio
 async def test_standalone_tuya_manager_resolves_state_to_key1_without_broadlink() -> None:
     hass = MagicMock()
@@ -132,3 +153,64 @@ async def test_standalone_tuya_manager_resolves_state_to_key1_without_broadlink(
     )
 
     transport.async_send_command.assert_awaited_once_with("COOLKEY")
+
+
+def test_tuya_pack_resolve_cool_24_auto_swing_off() -> None:
+    pack = get_tuya_pack("tuya.lg_pc09sq_nsj.v1")
+    assert pack.resolve("cool", 24, "auto", False)
+
+
+def test_tuya_pack_resolve_off() -> None:
+    pack = get_tuya_pack("tuya.lg_pc09sq_nsj.v1")
+    assert pack.resolve("off", None, None, False)
+
+
+def test_tuya_pack_resolve_unknown_returns_none() -> None:
+    pack = get_tuya_pack("tuya.lg_pc09sq_nsj.v1")
+    assert pack.resolve("cool", 99, "auto", False) is None
+
+
+def test_tuya_pack_has_complete_lg_placeholder_matrix() -> None:
+    pack = get_tuya_pack("tuya.lg_pc09sq_nsj.v1")
+    labels = {cmd.label for cmd in pack.commands}
+
+    assert len(pack.commands) >= 589
+    assert "off" in labels
+    assert "cool_16_f1_swing_off" in labels
+    assert "cool_30_auto_swing_on" in labels
+    assert "heat_16_f1_swing_off" in labels
+    assert "heat_30_auto_swing_on" in labels
+    assert "dry_16_auto_swing_off" in labels
+    assert "dry_30_auto_swing_on" in labels
+    assert "fan_f1_swing_off" in labels
+    assert "fan_auto_swing_on" in labels
+    assert "auto_16_f1_swing_off" in labels
+    assert "auto_30_auto_swing_on" in labels
+    assert {"turbo_on", "turbo_off", "sleep_on", "sleep_off", "eco_on", "eco_off"} <= labels
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_raises_on_missing_command() -> None:
+    transport = MagicMock(spec=TuyaIRTransport)
+    transport.async_send_command = AsyncMock()
+    pack = TuyaIRPack(
+        pack_id="tuya.empty.v1",
+        brand="LG",
+        models=["TEST"],
+        verified=False,
+        notes="empty",
+        min_temperature=16,
+        max_temperature=30,
+        commands=[],
+    )
+    manager = TuyaIRManager(MagicMock(), pack, transport)
+
+    with pytest.raises(KeyError):
+        await manager.async_send_climate_state(
+            {
+                "hvac_mode": "cool",
+                "target_temperature": 24,
+                "fan_mode": "auto",
+                "swing_vertical": "off",
+            },
+        )

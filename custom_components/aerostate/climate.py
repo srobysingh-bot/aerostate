@@ -695,21 +695,15 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             _LOGGER.debug("Applying state: %s", state_dict)
             if self._configured_ir_provider() == IR_PROVIDER_TUYA:
                 tuya_manager = self._get_tuya_ir_manager()
-                payload_hash = tuya_manager.payload_hash_for_state(state_dict)
-                if payload_hash == self._last_sent_payload_hash:
-                    _LOGGER.debug("Skipping Tuya command send; payload hash unchanged (%s)", payload_hash)
-                    self._last_sent_state = dict(state_dict)
-                    return
-
                 await tuya_manager.async_send_climate_state(state_dict)
                 self._last_sent_state = dict(state_dict)
-                self._last_sent_payload_hash = payload_hash
                 self._last_send_error = None
                 async_clear_command_failure(self._hass, self._entry)
                 self._sync_hvac_from_power_sensor()
                 self.async_write_ha_state()
                 _LOGGER.info(
-                    "Tuya AC command sent successfully for mode %s, temp %s",
+                    "AC command sent [%s] mode=%s temp=%s",
+                    IR_PROVIDER_TUYA,
                     self._attr_hvac_mode,
                     self._attr_target_temperature,
                 )
@@ -733,17 +727,17 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             self.async_write_ha_state()
 
             _LOGGER.info(
-                "AC command sent successfully for mode %s, temp %s",
+                "AC command sent [%s] mode=%s temp=%s",
+                self._configured_ir_provider(),
                 self._attr_hvac_mode,
                 self._attr_target_temperature,
             )
         except Exception as err:
             self._last_send_error = str(err)
             _LOGGER.warning(
-                "Command resolution/send failed for pack %s and state %s: %s",
-                self._pack.pack_id,
-                state_dict,
+                "Command send failed: %s | state=%s",
                 err,
+                state_dict,
             )
             if self._ir_manager.preference_configured == IR_PROVIDER_TUYA:
                 _LOGGER.warning(
@@ -788,19 +782,41 @@ async def async_setup_entry(
         brand = entry.data.get(CONF_BRAND)
         model_pack_id = entry.options.get(CONF_MODEL_PACK, entry.data.get(CONF_MODEL_PACK))
 
-        if ir_provider != IR_PROVIDER_TUYA and not all([broadlink_entity, brand, model_pack_id]):
-            _LOGGER.error("Missing required config values")
-            return False
-
-        # Load model pack
         if ir_provider == IR_PROVIDER_TUYA:
+            from .const import CONF_TUYA_LOCAL_DEVICE_ID
             from .packs.tuya.registry import get_tuya_pack
 
+            tuya_device_id = entry.options.get(
+                CONF_TUYA_LOCAL_DEVICE_ID,
+                entry.data.get(CONF_TUYA_LOCAL_DEVICE_ID),
+            )
             tuya_pack_id = entry.options.get(CONF_TUYA_MODEL_PACK, entry.data.get(CONF_TUYA_MODEL_PACK))
-            pack = get_tuya_pack(tuya_pack_id).to_model_pack()
+            if not all([tuya_device_id, tuya_pack_id]):
+                _LOGGER.error(
+                    "Tuya IR entry missing device_id or model_pack. Go to Options and complete Tuya IR setup.",
+                )
+                return False
+            try:
+                get_tuya_pack(tuya_pack_id)
+            except KeyError:
+                _LOGGER.error("Tuya IR pack '%s' not found in registry.", tuya_pack_id)
+                return False
+
+            lg_pack_id = entry.data.get(CONF_MODEL_PACK) or entry.options.get(CONF_MODEL_PACK)
+            if lg_pack_id:
+                pack = registry.get(lg_pack_id)
+            else:
+                all_packs = registry.list_all()
+                if not all_packs:
+                    _LOGGER.error("No LG packs available for climate entity capabilities.")
+                    return False
+                pack = all_packs[0]
             model_pack_id = pack.pack_id
             brand = pack.brand
         else:
+            if not all([broadlink_entity, brand, model_pack_id]):
+                _LOGGER.error("Missing required config values for Broadlink entry")
+                return False
             pack = registry.get(model_pack_id)
         _LOGGER.debug(
             "Loaded pack: %s (brand: %s, models: %s)",
