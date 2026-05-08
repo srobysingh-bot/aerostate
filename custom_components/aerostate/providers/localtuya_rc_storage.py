@@ -94,21 +94,19 @@ def read_learned_codes(hass, device_name: str) -> dict[str, str]:
     """
     Read learned IR codes for a device from localtuya_rc storage.
 
-    Handles missing primary files by finding the largest corrupt backup and
-    handles // commented JSON automatically.
+    Tries the normal file first, then the most recent corrupt backup if the
+    normal file is missing. Handles // commented JSON automatically.
     """
     config_dir = _config_dir(hass)
     storage_dir = os.path.join(config_dir, ".storage")
     primary_path = os.path.join(storage_dir, STORAGE_KEY)
 
-    if os.path.exists(primary_path) and os.path.getsize(primary_path) > 100:
-        result = _load_device_codes(primary_path, device_name)
-        if result:
-            return result
+    if os.path.exists(primary_path):
+        return _load_device_codes(primary_path, device_name)
 
     _LOGGER.warning(
-        "Primary localtuya_rc_codes not usable, searching backups in %s",
-        storage_dir,
+        "localtuya_rc_codes not found at %s - searching for backup",
+        primary_path,
     )
 
     try:
@@ -118,35 +116,27 @@ def read_learned_codes(hass, device_name: str) -> dict[str, str]:
             if filename.startswith(f"{STORAGE_KEY}.corrupt.")
         ]
     except OSError:
-        _LOGGER.error("Cannot list storage directory %s", storage_dir)
-        return {}
+        candidates = []
 
     if not candidates:
         _LOGGER.error(
-            "No localtuya_rc_codes backups found in %s. Learn IR codes first using remote.learn_command.",
+            "No localtuya_rc_codes file found in %s. Fix: run this in Terminal:\n"
+            "  ls /config/.storage/localtuya_rc_codes*\n"
+            "If you see a .corrupt file, copy it:\n"
+            "  cp '/config/.storage/localtuya_rc_codes.corrupt.TIMESTAMP' "
+            "'/config/.storage/localtuya_rc_codes'",
             storage_dir,
         )
         return {}
 
-    best_path = None
-    best_size = 0
-    for candidate in candidates:
-        full_path = os.path.join(storage_dir, candidate)
-        try:
-            size = os.path.getsize(full_path)
-        except OSError:
-            continue
-        if size > best_size:
-            best_size = size
-            best_path = full_path
-
-    if not best_path:
-        return {}
+    candidates.sort(reverse=True)
+    backup_path = os.path.join(storage_dir, candidates[0])
 
     _LOGGER.warning(
-        "Using backup %s (%d bytes). Fix permanently: cp '%s' '/config/.storage/localtuya_rc_codes'",
-        os.path.basename(best_path),
-        best_size,
-        best_path,
+        "Using corrupt backup: %s - Fix this permanently by copying it to localtuya_rc_codes:\n"
+        "  cp '%s' '%s'",
+        candidates[0],
+        backup_path,
+        primary_path,
     )
-    return _load_device_codes(best_path, device_name)
+    return _load_device_codes(backup_path, device_name)

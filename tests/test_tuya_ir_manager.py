@@ -54,6 +54,54 @@ def test_read_learned_codes_returns_empty_for_missing_device(tmp_path) -> None:
     assert read_learned_codes(hass, "Living AC IR") == {}
 
 
+def test_read_learned_codes_strips_commented_json_primary(tmp_path) -> None:
+    storage_dir = tmp_path / ".storage"
+    storage_dir.mkdir()
+    raw_json = json.dumps(
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {"Living AC IR": {"power_off": "raw:off"}},
+        },
+    )
+    (storage_dir / "localtuya_rc_codes").write_text(
+        "\n".join(f"// {line}" for line in raw_json.splitlines()),
+        encoding="utf-8",
+    )
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:off"}
+
+
+def test_read_learned_codes_uses_most_recent_corrupt_backup_when_primary_missing(tmp_path) -> None:
+    storage_dir = tmp_path / ".storage"
+    storage_dir.mkdir()
+    old_data = {
+        "version": 1,
+        "minor_version": 1,
+        "key": "localtuya_rc_codes",
+        "data": {"Living AC IR": {"power_off": "raw:old"}},
+    }
+    new_data = {
+        "version": 1,
+        "minor_version": 1,
+        "key": "localtuya_rc_codes",
+        "data": {"Living AC IR": {"power_off": "raw:new"}},
+    }
+    (storage_dir / "localtuya_rc_codes.corrupt.2026-05-05T121107").write_text(
+        json.dumps(old_data),
+        encoding="utf-8",
+    )
+    (storage_dir / "localtuya_rc_codes.corrupt.2026-05-08T130000").write_text(
+        json.dumps(new_data),
+        encoding="utf-8",
+    )
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:new"}
+
+
 def test_resolve_power_off_returns_raw_string() -> None:
     assert resolve_learned_code({"power_off": "raw:off"}, {"hvac_mode": "off"}) == "raw:off"
 
