@@ -379,9 +379,11 @@ def create_ir_manager_from_entry(
     if isinstance(tuya_pack_id, str) and tuya_pack_id.strip():
         tid = tuya_pack_id.strip()
         try:
-            tuya_pack_obj = registry.get(tid)
+            from ..packs.tuya.registry import get_tuya_pack as _get_tuya_pack
+
+            tuya_pack_obj = _get_tuya_pack(tid).to_model_pack()
         except KeyError:
-            _LOGGER.warning("[%s] tuya_model_pack %s missing from registry", entry.entry_id, tid)
+            _LOGGER.warning("[%s] tuya_model_pack %s missing from Tuya registry", entry.entry_id, tid)
             tuya_pack_obj = None
         if tuya_pack_obj is not None:
             if getattr(tuya_pack_obj, "engine_type", "") == "lg_protocol":
@@ -393,7 +395,11 @@ def create_ir_manager_from_entry(
                     _LOGGER.exception("[%s] cannot create Tuya hex pack engine %s", entry.entry_id, tid)
                     tuya_engine = None
 
-    raw_conv = entry.options.get(CONF_IR_CONVERSION_ENABLED, entry.data.get(CONF_IR_CONVERSION_ENABLED, False))
+    default_ir_conversion = normalized == IR_PROVIDER_TUYA
+    raw_conv = entry.options.get(
+        CONF_IR_CONVERSION_ENABLED,
+        entry.data.get(CONF_IR_CONVERSION_ENABLED, default_ir_conversion),
+    )
     if isinstance(raw_conv, str):
         ir_conversion_enabled = raw_conv.strip().lower() in ("1", "true", "yes", "on")
     else:

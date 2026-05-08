@@ -46,15 +46,44 @@ def _pack() -> ModelPack:
     )
 
 
+def _daikin_pack() -> ModelPack:
+    return ModelPack(
+        pack_id="daikin.test.v1",
+        brand="Daikin",
+        pack_version=1,
+        models=["DAIKIN"],
+        transport="broadlink_base64",
+        min_temperature=16,
+        max_temperature=30,
+        capabilities=PackCapabilities(
+            hvac_modes=["cool"],
+            fan_modes=["auto"],
+            swing_vertical_modes=["off", "on"],
+            swing_horizontal_modes=[],
+            presets=[],
+        ),
+        engine_type="table",
+        commands={"off": "OFF", "cool": {"auto": {"off": {"24": "COOL24"}}}},
+        verified=True,
+        notes="test",
+    )
+
+
 class _Registry:
     def __init__(self) -> None:
         self.pack = _pack()
+        self.daikin_pack = _daikin_pack()
 
-    def get(self, _pack_id: str) -> ModelPack:
+    def get(self, pack_id: str) -> ModelPack:
+        if pack_id == self.daikin_pack.pack_id:
+            return self.daikin_pack
         return self.pack
 
+    def list_brand_packs(self, brand: str) -> list[ModelPack]:
+        return [pack for pack in [self.daikin_pack, self.pack] if pack.brand.lower() == brand.lower()]
+
     def list_all(self) -> list[ModelPack]:
-        return [self.pack]
+        return [self.daikin_pack, self.pack]
 
 
 class _IRManager:
@@ -112,6 +141,7 @@ async def test_climate_setup_entry_tuya_path_no_broadlink_required(monkeypatch) 
 
     assert ok is True
     assert len(added) == 1
+    assert added[0]._pack.brand == "LG"
 
 
 @pytest.mark.asyncio

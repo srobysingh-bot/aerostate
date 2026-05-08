@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 pytest.importorskip("homeassistant")
 
-from custom_components.aerostate.const import IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA
+from custom_components.aerostate.const import (
+    CONF_IR_PROVIDER,
+    CONF_TUYA_IR_ENTITY,
+    CONF_TUYA_MODEL_PACK,
+    IR_PROVIDER_BROADLINK,
+    IR_PROVIDER_TUYA,
+)
 from custom_components.aerostate.providers.broadlink import BroadlinkIRProvider, BroadlinkProvider
 from custom_components.aerostate.providers.ir_exceptions import IRRoutingMisconfigured
-from custom_components.aerostate.providers.ir_manager import IRManager, _normalize_ir_provider_key, create_ir_manager_explicit
+from custom_components.aerostate.providers.ir_manager import (
+    IRManager,
+    _normalize_ir_provider_key,
+    create_ir_manager_explicit,
+    create_ir_manager_from_entry,
+)
 from custom_components.aerostate.providers.tuya_ir import TuyaIRProvider
 
 
@@ -75,6 +87,32 @@ def test_effective_ir_mode_misconfigured_when_tuya_incomplete() -> None:
         tuya_sender=None,
     )
     assert mgr.effective_ir_mode() == "misconfigured"
+
+
+def test_create_ir_manager_uses_tuya_registry_and_enables_conversion_by_default() -> None:
+    hass = _minimal_hass()
+    registry = MagicMock()
+    registry.get.side_effect = AssertionError("main registry must not load tuya_model_pack")
+    entry = SimpleNamespace(
+        entry_id="entry_tuya",
+        data={
+            CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
+        },
+        options={},
+    )
+
+    mgr = create_ir_manager_from_entry(
+        hass,
+        entry,
+        lg_engine=_LGEngine(),
+        registry=registry,
+    )
+
+    assert mgr.effective_ir_mode() == IR_PROVIDER_TUYA
+    assert mgr._conversion_layer is not None
+    registry.get.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -794,19 +794,40 @@ async def async_setup_entry(
                 )
                 return False
             try:
-                get_tuya_pack(tuya_pack_id)
+                tuya_pack = get_tuya_pack(tuya_pack_id)
             except KeyError:
                 _LOGGER.error("Tuya IR pack '%s' not found in registry.", tuya_pack_id)
                 return False
 
             lg_pack_id = entry.data.get(CONF_MODEL_PACK) or entry.options.get(CONF_MODEL_PACK)
+            pack = None
             if lg_pack_id:
-                pack = registry.get(lg_pack_id)
-            else:
+                try:
+                    pack = registry.get(lg_pack_id)
+                except KeyError:
+                    _LOGGER.warning("Configured capability pack '%s' not found; falling back by Tuya pack metadata.", lg_pack_id)
+            if pack is None:
+                brand_packs = registry.list_brand_packs(tuya_pack.brand)
+                tuya_models = {model.lower() for model in tuya_pack.models}
+                pack = next(
+                    (
+                        candidate
+                        for candidate in brand_packs
+                        if tuya_models
+                        and any(model.lower() in tuya_models for model in candidate.models)
+                    ),
+                    brand_packs[0] if brand_packs else None,
+                )
+            if pack is None:
                 all_packs = registry.list_all()
                 if not all_packs:
-                    _LOGGER.error("No LG packs available for climate entity capabilities.")
+                    _LOGGER.error("No model packs available for climate entity capabilities.")
                     return False
+                _LOGGER.warning(
+                    "No %s capability packs found for Tuya pack '%s'; using first available pack.",
+                    tuya_pack.brand,
+                    tuya_pack_id,
+                )
                 pack = all_packs[0]
             model_pack_id = pack.pack_id
             brand = pack.brand
