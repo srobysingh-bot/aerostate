@@ -18,15 +18,9 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
-    CONF_TUYA_HOST,
-    CONF_TUYA_IR_DP,
-    CONF_TUYA_IR_NO_ACK_MODE,
-    CONF_TUYA_IR_SEND_BLOCKING,
-    CONF_TUYA_LOCAL_DEVICE_ID,
-    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
-    DEFAULT_TUYA_IR_DP,
 )
 from .flow_helpers import (
     build_entry_title,
@@ -52,32 +46,8 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> vol.Schema:
         """Build options form schema."""
         ir_default = config_entry.options.get(CONF_IR_PROVIDER, config_entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
+        tuya_entity_default = config_entry.options.get(CONF_TUYA_IR_ENTITY, config_entry.data.get(CONF_TUYA_IR_ENTITY))
         tuya_pack_default = config_entry.options.get(CONF_TUYA_MODEL_PACK, config_entry.data.get(CONF_TUYA_MODEL_PACK))
-
-        raw_na = config_entry.options.get(CONF_TUYA_IR_NO_ACK_MODE, config_entry.data.get(CONF_TUYA_IR_NO_ACK_MODE, True))
-        if isinstance(raw_na, str):
-            no_ack_default = raw_na.strip().lower() in ("1", "true", "yes", "on")
-        else:
-            no_ack_default = bool(raw_na)
-
-        raw_blk = config_entry.options.get(CONF_TUYA_IR_SEND_BLOCKING, config_entry.data.get(CONF_TUYA_IR_SEND_BLOCKING, True))
-        if isinstance(raw_blk, str):
-            blk_default = raw_blk.strip().lower() in ("1", "true", "yes", "on")
-        else:
-            blk_default = bool(raw_blk)
-
-        ld_raw = config_entry.options.get(CONF_TUYA_LOCAL_DEVICE_ID, config_entry.data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""))
-        ld_default = ld_raw.strip() if isinstance(ld_raw, str) else ""
-        local_key_raw = config_entry.options.get(CONF_TUYA_LOCAL_KEY, config_entry.data.get(CONF_TUYA_LOCAL_KEY, ""))
-        local_key_default = local_key_raw.strip() if isinstance(local_key_raw, str) else ""
-        host_raw = config_entry.options.get(CONF_TUYA_HOST, config_entry.data.get(CONF_TUYA_HOST, ""))
-        host_default = host_raw.strip() if isinstance(host_raw, str) else ""
-
-        dp_raw = config_entry.options.get(CONF_TUYA_IR_DP, config_entry.data.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP))
-        try:
-            dp_default_val = int(str(dp_raw).strip(), 10) if dp_raw not in (None, "") else DEFAULT_TUYA_IR_DP
-        except ValueError:
-            dp_default_val = DEFAULT_TUYA_IR_DP
 
         return vol.Schema(
             {
@@ -96,35 +66,18 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(value="broadlink", label="Broadlink IR (default)"),
-                            selector.SelectOptionDict(value="tuya", label="Tuya IR via localtuya DP 201"),
+                            selector.SelectOptionDict(value="tuya", label="Tuya IR remote.send_command"),
                         ]
                     ),
                 ),
                 vol.Optional(
+                    CONF_TUYA_IR_ENTITY,
+                    default=tuya_entity_default,
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="remote")),
+                vol.Optional(
                     CONF_TUYA_MODEL_PACK,
                     default=tuya_pack_default if tuya_pack_default else "",
                 ): selector.SelectSelector(selector.SelectSelectorConfig(options=tuya_pack_options)),
-                vol.Optional(
-                    CONF_TUYA_LOCAL_DEVICE_ID,
-                    default=ld_default,
-                ): selector.TextSelector(),
-                vol.Optional(
-                    CONF_TUYA_LOCAL_KEY,
-                    default=local_key_default,
-                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-                vol.Optional(
-                    CONF_TUYA_HOST,
-                    default=host_default,
-                ): selector.TextSelector(),
-                vol.Optional(CONF_TUYA_IR_DP, default=str(dp_default_val)): str,
-                vol.Optional(
-                    CONF_TUYA_IR_NO_ACK_MODE,
-                    default=no_ack_default,
-                ): selector.BooleanSelector(),
-                vol.Optional(
-                    CONF_TUYA_IR_SEND_BLOCKING,
-                    default=blk_default,
-                ): selector.BooleanSelector(),
                 vol.Optional(
                     CONF_TEMP_SENSOR,
                     default=config_entry.options.get(CONF_TEMP_SENSOR),
@@ -255,38 +208,17 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
 
             new_options[CONF_IR_PROVIDER] = sel_ir
 
+            raw_tuya_entity = user_input.get(CONF_TUYA_IR_ENTITY)
+            if isinstance(raw_tuya_entity, str) and raw_tuya_entity.strip():
+                new_options[CONF_TUYA_IR_ENTITY] = raw_tuya_entity.strip()
+            else:
+                new_options.pop(CONF_TUYA_IR_ENTITY, None)
+
             raw_tp = user_input.get(CONF_TUYA_MODEL_PACK)
             if isinstance(raw_tp, str) and raw_tp.strip():
                 new_options[CONF_TUYA_MODEL_PACK] = raw_tp.strip()
             else:
                 new_options.pop(CONF_TUYA_MODEL_PACK, None)
-
-            raw_ld_in = user_input.get(CONF_TUYA_LOCAL_DEVICE_ID)
-            if isinstance(raw_ld_in, str) and raw_ld_in.strip():
-                new_options[CONF_TUYA_LOCAL_DEVICE_ID] = raw_ld_in.strip()
-            else:
-                new_options.pop(CONF_TUYA_LOCAL_DEVICE_ID, None)
-
-            raw_lk_in = user_input.get(CONF_TUYA_LOCAL_KEY)
-            if isinstance(raw_lk_in, str) and raw_lk_in.strip():
-                new_options[CONF_TUYA_LOCAL_KEY] = raw_lk_in.strip()
-            else:
-                new_options.pop(CONF_TUYA_LOCAL_KEY, None)
-
-            raw_host_in = user_input.get(CONF_TUYA_HOST)
-            if isinstance(raw_host_in, str) and raw_host_in.strip():
-                new_options[CONF_TUYA_HOST] = raw_host_in.strip()
-            else:
-                new_options.pop(CONF_TUYA_HOST, None)
-
-            try:
-                dpi = int(str(user_input.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)).strip(), 10)
-                new_options[CONF_TUYA_IR_DP] = max(1, min(999, dpi))
-            except ValueError:
-                new_options[CONF_TUYA_IR_DP] = DEFAULT_TUYA_IR_DP
-
-            new_options[CONF_TUYA_IR_NO_ACK_MODE] = bool(user_input.get(CONF_TUYA_IR_NO_ACK_MODE, True))
-            new_options[CONF_TUYA_IR_SEND_BLOCKING] = bool(user_input.get(CONF_TUYA_IR_SEND_BLOCKING, True))
 
             for sensor_key in (
                 CONF_TEMP_SENSOR,

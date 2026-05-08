@@ -20,14 +20,9 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
-    CONF_TUYA_HOST,
-    CONF_TUYA_IR_DP,
-    CONF_TUYA_IR_SEND_BLOCKING,
-    CONF_TUYA_LOCAL_DEVICE_ID,
-    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
-    DEFAULT_TUYA_IR_DP,
     DOMAIN,
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
@@ -102,7 +97,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(value=IR_PROVIDER_BROADLINK, label="Broadlink IR (default)"),
-                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR (LocalTuya DP-201)"),
+                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR (remote.send_command b64)"),
                         ],
                         mode="list",
                     ),
@@ -139,7 +134,6 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.FlowResult:
         """Collect Tuya IR blaster connection details."""
         from .packs.tuya.registry import get_tuya_pack, get_tuya_pack_options_for_ui
-        from .providers.tuya_ir_transport import TuyaIRTransport
 
         errors: dict[str, str] = {}
         tuya_pack_options = get_tuya_pack_options_for_ui()
@@ -151,17 +145,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_TUYA_LOCAL_DEVICE_ID): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
-                ),
-                vol.Required(CONF_TUYA_LOCAL_KEY): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD),
-                ),
-                vol.Required(CONF_TUYA_HOST): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
-                ),
-                vol.Optional(CONF_TUYA_IR_DP, default=str(DEFAULT_TUYA_IR_DP)): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=1, max=999, mode="box"),
+                vol.Required(CONF_TUYA_IR_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="remote"),
                 ),
                 vol.Required(CONF_TUYA_MODEL_PACK, default=default_pack): selector.SelectSelector(
                     selector.SelectSelectorConfig(
@@ -172,21 +157,16 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode="list",
                     ),
                 ),
-                vol.Optional(CONF_TUYA_IR_SEND_BLOCKING, default=True): selector.BooleanSelector(),
             },
         )
 
         if user_input is not None:
-            transport = TuyaIRTransport(
-                hass=self.hass,
-                device_id=str(user_input.get(CONF_TUYA_LOCAL_DEVICE_ID, "")),
-                local_key=str(user_input.get(CONF_TUYA_LOCAL_KEY, "")),
-                host=str(user_input.get(CONF_TUYA_HOST, "")),
-                dp=int(user_input.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)),
-                send_blocking=bool(user_input.get(CONF_TUYA_IR_SEND_BLOCKING, True)),
-            )
-            if not await transport.probe_transport():
-                errors["base"] = "tuya_set_dp_not_available"
+            remote_entity = user_input.get(CONF_TUYA_IR_ENTITY)
+            state = self.hass.states.get(remote_entity)
+            if state is None:
+                errors["base"] = "tuya_remote_entity_not_found"
+            elif state.state in ("unavailable", "unknown"):
+                errors["base"] = "tuya_remote_entity_unavailable"
             else:
                 selected_pack_id = str(user_input.get(CONF_TUYA_MODEL_PACK, ""))
                 try:
@@ -196,9 +176,6 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 self._tuya_data = dict(user_input)
-                self._tuya_data[CONF_TUYA_IR_DP] = int(
-                    self._tuya_data.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP),
-                )
                 self._selected_ir_provider = IR_PROVIDER_TUYA
                 return await self.async_step_tuya_confirm()
 
@@ -207,8 +184,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "dp_hint": "Default is 201. Only change if your Tuya IR blaster uses a different DP for IR send.",
-                "service_hint": "Requires LocalTuya integration with localtuya.set_dp service.",
+                "service_hint": "Requires LocalTuyaIR Remote Control integration with your IR blaster configured.",
             },
         )
 
@@ -221,8 +197,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, ""))
-            device_id = str(self._tuya_data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""))
-            unique_id = f"tuya::{device_id}::{pack_id}"
+            remote_entity = str(self._tuya_data.get(CONF_TUYA_IR_ENTITY, ""))
+            unique_id = f"tuya::{remote_entity}::{pack_id}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
             try:
@@ -239,9 +215,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, ""))
-        device_id = str(self._tuya_data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""))
-        host = str(self._tuya_data.get(CONF_TUYA_HOST, ""))
-        device_id_short = device_id[:8] + "..." if len(device_id) > 8 else device_id
+        remote_entity = str(self._tuya_data.get(CONF_TUYA_IR_ENTITY, ""))
 
         try:
             pack = get_tuya_pack(pack_id)
@@ -257,13 +231,11 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="tuya_confirm",
             data_schema=vol.Schema({}),
             description_placeholders={
-                "device_id_short": device_id_short,
-                "host": host,
+                "remote_entity": remote_entity,
                 "pack_label": pack_label,
                 "pack_id": pack_id,
                 "pack_verified": pack_verified,
                 "pack_commands": pack_commands,
-                "dp": str(self._tuya_data.get(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)),
             },
         )
 

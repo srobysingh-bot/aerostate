@@ -11,9 +11,7 @@ pytest.importorskip("homeassistant")
 from custom_components.aerostate import diagnostics
 from custom_components.aerostate.const import (
     CONF_IR_PROVIDER,
-    CONF_TUYA_HOST,
-    CONF_TUYA_LOCAL_DEVICE_ID,
-    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     IR_PROVIDER_TUYA,
 )
@@ -237,9 +235,7 @@ async def test_diagnostics_tuya_block_present_for_tuya_entry(monkeypatch) -> Non
         title="Tuya",
         data={
             CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
-            CONF_TUYA_LOCAL_DEVICE_ID: "bf1234567890",
-            CONF_TUYA_LOCAL_KEY: "secret",
-            CONF_TUYA_HOST: "192.0.2.10",
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
         },
         options={},
@@ -251,8 +247,8 @@ async def test_diagnostics_tuya_block_present_for_tuya_entry(monkeypatch) -> Non
     result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
 
     assert "tuya_ir" in result
-    assert isinstance(result["tuya_ir"]["localtuya_set_dp_available"], bool)
-    assert result["tuya_ir"]["device_id"] == "bf123456..."
+    assert result["tuya_ir"]["transport"] == "remote.send_command"
+    assert result["tuya_ir"]["remote_entity"] == "remote.test_ir"
     payload_text = str(result)
     assert "secret" not in payload_text
-    assert CONF_TUYA_LOCAL_KEY not in payload_text
+    assert "tuya_local_key" not in payload_text

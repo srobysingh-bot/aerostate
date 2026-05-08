@@ -1,121 +1,109 @@
-"""Standalone Tuya IR state resolver and sender."""
+"""Standalone Tuya IR manager using remote.send_command with b64 payloads."""
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from typing import Any
-
-from ..packs.tuya.registry import get_tuya_pack
-from ..packs.tuya.schema import TuyaIRPack
-from .tuya_ir_transport import TuyaIRTransport
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class TuyaIRManager:
-    """Resolve climate state to Tuya key1 and send it via DP 201."""
+    """Send Tuya IR commands via remote.send_command using inline b64 payloads."""
 
-    def __init__(
-        self,
-        hass: Any,
-        pack: TuyaIRPack,
-        transport: TuyaIRTransport,
-    ) -> None:
+    def __init__(self, hass: Any, remote_entity_id: str, pack: Any) -> None:
         self._hass = hass
+        self._remote_entity_id = remote_entity_id
         self._pack = pack
-        self._transport = transport
 
-    def resolve_key1(self, state: dict[str, Any]) -> str:
-        """Resolve a climate state dictionary to a Tuya key1 payload."""
-        preset_mode = state.get("preset_mode")
-        if preset_mode and preset_mode not in (None, "none", ""):
-            special_label = f"{preset_mode}_on"
-            key1 = self._pack.resolve_by_label(special_label)
-            if key1:
-                return key1
-
+    async def async_send_climate_state(self, state: dict[str, Any]) -> None:
+        """Resolve and send one climate state."""
         hvac_mode = state.get("hvac_mode", "off")
         temperature = state.get("target_temperature")
         fan_mode = state.get("fan_mode")
         swing_on = bool(state.get("swing_on", state.get("swing_vertical") == "on"))
+        preset_mode = state.get("preset_mode")
+
+        if preset_mode and preset_mode not in (None, "none", ""):
+            key1 = self._pack.resolve_by_label(f"{preset_mode}_on")
+            if key1 and key1 not in ("AA==", "AQ=="):
+                await self._send_b64(key1)
+                return
 
         key1 = self._pack.resolve(
             hvac_mode=hvac_mode,
-            temperature=int(temperature) if temperature is not None and hvac_mode != "off" else None,
-            fan_mode=fan_mode if hvac_mode != "off" else None,
-            swing_on=swing_on if hvac_mode != "off" else False,
+            temperature=int(temperature) if temperature is not None else None,
+            fan_mode=fan_mode,
+            swing_on=swing_on,
         )
 
-        if key1 is None:
-            _LOGGER.error(
-                "TuyaIRManager: no command found for state=%s pack=%s",
-                state,
-                self._pack.pack_id,
+        if not key1 or key1 in ("AA==", "AQ=="):
+            raise KeyError(
+                f"No valid Tuya IR command for state: {state}. "
+                "Pack may have placeholder key1 values - run converter first.",
             )
-            raise KeyError(f"No Tuya IR command for state: {state}")
-        return key1
 
-    def payload_hash_for_state(self, state: dict[str, Any]) -> str:
-        """Return a stable hash of the resolved key1 payload."""
-        return hashlib.sha256(self.resolve_key1(state).encode("utf-8")).hexdigest()[:12]
+        await self._send_b64(key1)
 
-    async def async_send_climate_state(self, state: dict[str, Any]) -> None:
-        """Resolve and send one climate state."""
-        preset_mode = state.get("preset_mode")
-        if preset_mode and preset_mode not in (None, "none", ""):
-            special_label = f"{preset_mode}_on"
-            key1 = self._pack.resolve_by_label(special_label)
-            if key1:
-                _LOGGER.debug("TuyaIRManager: resolved preset=%s to key1_len=%d", preset_mode, len(key1))
-                await self._transport.async_send_command(key1)
-                return
+    async def _send_b64(self, key1: str) -> None:
+        """Send one IR command via remote.send_command with b64: prefix."""
+        command = f"b64:{key1}"
 
-        key1 = self.resolve_key1(state)
-        _LOGGER.debug("TuyaIRManager: resolved state=%s to key1_len=%d", state, len(key1))
-        await self._transport.async_send_command(key1)
+        _LOGGER.debug(
+            "TuyaIRManager: sending via remote.send_command entity=%s command_len=%d",
+            self._remote_entity_id,
+            len(command),
+        )
+
+        await self._hass.services.async_call(
+            "remote",
+            "send_command",
+            {
+                "entity_id": self._remote_entity_id,
+                "command": command,
+            },
+            blocking=True,
+        )
 
     async def probe_transport(self) -> bool:
-        """Probe the standalone Tuya transport."""
-        return await self._transport.probe_transport()
+        """Check that the configured remote entity exists and is available."""
+        state = self._hass.states.get(self._remote_entity_id)
+        if state is None:
+            _LOGGER.warning("TuyaIRManager: remote entity %s not found", self._remote_entity_id)
+            return False
+        if state.state in ("unavailable", "unknown"):
+            _LOGGER.warning(
+                "TuyaIRManager: remote entity %s is %s",
+                self._remote_entity_id,
+                state.state,
+            )
+            return False
+        return True
 
     def describe(self) -> dict[str, Any]:
         """Return debug-safe manager details."""
         return {
-            "tuya_ir_manager": True,
+            "transport": "tuya_ir_remote_send_command",
+            "remote_entity": self._remote_entity_id,
             "pack_id": self._pack.pack_id,
             "pack_verified": self._pack.verified,
-            "transport": self._transport.describe(),
         }
 
 
 def create_tuya_ir_manager_from_entry(hass: Any, entry: Any) -> TuyaIRManager:
-    """Build a TuyaIRManager from Tuya-specific entry data/options."""
-    from ..const import (
-        CONF_TUYA_HOST,
-        CONF_TUYA_IR_DP,
-        CONF_TUYA_IR_NO_ACK_MODE,
-        CONF_TUYA_IR_SEND_BLOCKING,
-        CONF_TUYA_LOCAL_DEVICE_ID,
-        CONF_TUYA_LOCAL_KEY,
-        CONF_TUYA_MODEL_PACK,
-        DEFAULT_TUYA_IR_DP,
-    )
+    """Build a TuyaIRManager from entry data/options."""
+    from ..const import CONF_TUYA_IR_ENTITY, CONF_TUYA_MODEL_PACK
+    from ..packs.tuya.registry import get_tuya_pack
 
     def _opt(key: str, default: Any = None) -> Any:
         return entry.options.get(key, entry.data.get(key, default))
 
+    remote_entity = _opt(CONF_TUYA_IR_ENTITY)
     pack_id = _opt(CONF_TUYA_MODEL_PACK)
     pack = get_tuya_pack(pack_id)
 
-    transport = TuyaIRTransport(
+    return TuyaIRManager(
         hass=hass,
-        device_id=_opt(CONF_TUYA_LOCAL_DEVICE_ID, ""),
-        local_key=_opt(CONF_TUYA_LOCAL_KEY, ""),
-        host=_opt(CONF_TUYA_HOST, ""),
-        dp=int(_opt(CONF_TUYA_IR_DP, DEFAULT_TUYA_IR_DP)),
-        no_ack_mode=bool(_opt(CONF_TUYA_IR_NO_ACK_MODE, False)),
-        send_blocking=bool(_opt(CONF_TUYA_IR_SEND_BLOCKING, True)),
+        remote_entity_id=remote_entity,
+        pack=pack,
     )
-
-    return TuyaIRManager(hass=hass, pack=pack, transport=transport)

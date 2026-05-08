@@ -9,9 +9,7 @@ import pytest
 import custom_components.aerostate as integration
 from custom_components.aerostate.const import (
     CONF_IR_PROVIDER,
-    CONF_TUYA_HOST,
-    CONF_TUYA_LOCAL_DEVICE_ID,
-    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     IR_PROVIDER_TUYA,
 )
@@ -143,9 +141,7 @@ async def test_self_test_tuya_path_sends_off_and_returns(monkeypatch) -> None:
         data={
             CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
             CONF_TUYA_MODEL_PACK: "tuya.test.v1",
-            CONF_TUYA_LOCAL_DEVICE_ID: "bf123",
-            CONF_TUYA_LOCAL_KEY: "secret",
-            CONF_TUYA_HOST: "192.0.2.10",
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
         },
         options={},
     )

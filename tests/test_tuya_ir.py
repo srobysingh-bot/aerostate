@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,7 +11,6 @@ pytest.importorskip("homeassistant")
 from custom_components.aerostate.providers.ir_types import IRCommand
 from custom_components.aerostate.providers.tuya_ir import TuyaIRProvider
 from custom_components.aerostate.providers.tuya_ir_manager import TuyaIRManager
-from custom_components.aerostate.providers.tuya_ir_transport import TuyaIRTransport
 from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
 from custom_components.aerostate.packs.tuya.schema import TuyaIRCommand, TuyaIRPack
 
@@ -25,42 +23,13 @@ def test_normalize_hex_strips_non_hex_and_requires_even_length() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_prefers_localtuya_set_dp_when_configured_and_service_present() -> None:
-    hass = MagicMock()
-
-    def _has(domain: str, service: str) -> bool:
-        return domain == "localtuya" and service == "set_dp"
-
-    hass.services.has_service = MagicMock(side_effect=_has)
-    spy = AsyncMock()
-    hass.services.async_call = spy
-
-    tp = TuyaIRProvider(
-        hass,
-        "remote.living_room",
-        blocking=False,
-        entry_id="entry_living",
-        localtuya_device_id="bfb5e7c012345678abcd",
-        ir_dp=201,
-    )
-    await tp.send_command(IRCommand(name="cmd", payload="aabb", format="tuya"))
-
-    spy.assert_called_once_with(
-        "localtuya",
-        "set_dp",
-        {"device_id": "bfb5e7c012345678abcd", "dp": 201, "value": "aabb"},
-        blocking=False,
-    )
-
-
-@pytest.mark.asyncio
-async def test_send_falls_back_to_remote_when_localtuya_unavailable() -> None:
+async def test_legacy_tuya_provider_sends_remote_command() -> None:
     hass = MagicMock()
     hass.services.has_service = MagicMock(return_value=False)
     spy = AsyncMock()
     hass.services.async_call = spy
 
-    tp = TuyaIRProvider(hass, "remote.x", blocking=False, localtuya_device_id="abc")
+    tp = TuyaIRProvider(hass, "remote.x", blocking=False)
     await tp.send_command(IRCommand(name="cmd", payload="ccddee", format="tuya"))
 
     spy.assert_called_once_with(
@@ -72,55 +41,10 @@ async def test_send_falls_back_to_remote_when_localtuya_unavailable() -> None:
 
 
 @pytest.mark.asyncio
-async def test_standalone_tuya_transport_sends_dp201_json_string() -> None:
-    hass = MagicMock()
-    hass.services.has_service = MagicMock(return_value=True)
-    spy = AsyncMock()
-    hass.services.async_call = spy
-
-    transport = TuyaIRTransport(
-        hass,
-        device_id="bf123",
-        local_key="secret",
-        host="192.0.2.10",
-        send_blocking=False,
-    )
-
-    await transport.async_send_command("AQID")
-
-    spy.assert_called_once()
-    domain, service, data = spy.call_args.args
-    assert (domain, service) == ("localtuya", "set_dp")
-    assert data["device_id"] == "bf123"
-    assert data["dp"] == "201"
-    assert data["value"] == '{"control": "send_ir", "head": "", "key1": "AQID", "type": 0, "delay": 300}'
-    assert spy.call_args.kwargs == {"blocking": False}
-
-
-def test_tuya_transport_payload_shape() -> None:
-    transport = TuyaIRTransport(
-        MagicMock(),
-        device_id="bf123",
-        local_key="secret",
-        host="192.0.2.10",
-    )
-
-    payload = json.loads(transport._build_dp201_payload("AQID"))
-
-    assert payload == {
-        "control": "send_ir",
-        "head": "",
-        "key1": "AQID",
-        "type": 0,
-        "delay": 300,
-    }
-
-
-@pytest.mark.asyncio
 async def test_standalone_tuya_manager_resolves_state_to_key1_without_broadlink() -> None:
     hass = MagicMock()
-    transport = MagicMock(spec=TuyaIRTransport)
-    transport.async_send_command = AsyncMock()
+    spy = AsyncMock()
+    hass.services.async_call = spy
     pack = TuyaIRPack(
         pack_id="tuya.test.v1",
         brand="LG",
@@ -142,7 +66,7 @@ async def test_standalone_tuya_manager_resolves_state_to_key1_without_broadlink(
         ],
     )
 
-    manager = TuyaIRManager(hass, pack, transport)
+    manager = TuyaIRManager(hass, "remote.test_ir", pack)
     await manager.async_send_climate_state(
         {
             "hvac_mode": "cool",
@@ -152,7 +76,24 @@ async def test_standalone_tuya_manager_resolves_state_to_key1_without_broadlink(
         },
     )
 
-    transport.async_send_command.assert_awaited_once_with("COOLKEY")
+    spy.assert_awaited_once_with(
+        "remote",
+        "send_command",
+        {"entity_id": "remote.test_ir", "command": "b64:COOLKEY"},
+        blocking=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_probe_checks_remote_entity_state() -> None:
+    hass = MagicMock()
+    hass.states.get.return_value = MagicMock(state="on")
+    pack = get_tuya_pack("tuya.lg_pc09sq_nsj.v1")
+
+    manager = TuyaIRManager(hass, "remote.test_ir", pack)
+
+    assert await manager.probe_transport() is True
+    hass.states.get.assert_called_once_with("remote.test_ir")
 
 
 def test_tuya_pack_resolve_cool_24_auto_swing_off() -> None:
@@ -191,8 +132,6 @@ def test_tuya_pack_has_complete_lg_placeholder_matrix() -> None:
 
 @pytest.mark.asyncio
 async def test_tuya_manager_raises_on_missing_command() -> None:
-    transport = MagicMock(spec=TuyaIRTransport)
-    transport.async_send_command = AsyncMock()
     pack = TuyaIRPack(
         pack_id="tuya.empty.v1",
         brand="LG",
@@ -203,7 +142,7 @@ async def test_tuya_manager_raises_on_missing_command() -> None:
         max_temperature=30,
         commands=[],
     )
-    manager = TuyaIRManager(MagicMock(), pack, transport)
+    manager = TuyaIRManager(MagicMock(), "remote.test_ir", pack)
 
     with pytest.raises(KeyError):
         await manager.async_send_climate_state(

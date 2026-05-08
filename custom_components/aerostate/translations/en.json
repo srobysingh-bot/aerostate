@@ -17,19 +17,15 @@
       },
       "tuya_device": {
         "title": "Tuya IR Blaster Setup",
-        "description": "Enter your Tuya IR blaster credentials.\n\n{dp_hint}\n\n{service_hint}",
+        "description": "Select your Tuya IR remote entity and IR command pack.\n\nRequires LocalTuyaIR Remote Control integration with your IR blaster configured.",
         "data": {
-          "tuya_local_device_id": "Tuya Device ID",
-          "tuya_local_key": "Tuya Local Key",
-          "tuya_host": "IR Blaster IP Address",
-          "tuya_ir_dp": "IR Send DP",
-          "tuya_model_pack": "Tuya IR Command Pack",
-          "tuya_ir_send_blocking": "Wait for send confirmation"
+          "tuya_ir_entity": "Tuya IR Remote Entity",
+          "tuya_model_pack": "Tuya IR Command Pack"
         }
       },
       "tuya_confirm": {
         "title": "Confirm Tuya IR Setup",
-        "description": "Review your Tuya IR setup before creating the entry.\n\n**Device ID:** {device_id_short}\n**Host IP:** {host}\n**DP:** {dp}\n**Pack:** {pack_label} ({pack_id})\n**Verified:** {pack_verified}\n**Commands in pack:** {pack_commands}\n\nClick Submit to create the entry.",
+        "description": "Review your Tuya IR setup before creating the entry.\n\n**Remote entity:** {remote_entity}\n**Pack:** {pack_label} ({pack_id})\n**Verified:** {pack_verified}\n**Commands in pack:** {pack_commands}\n\nClick Submit to create the entry.",
         "data": {}
       },
       "brand": {
@@ -81,15 +77,15 @@
       "validation_failed": "Validation commands failed. Check logs for details.",
       "already_configured": "This controller and model pack are already configured.",
       "no_tuya_packs_available": "No Tuya IR packs are available. Add a Tuya pack to packs/tuya/ first.",
-      "tuya_set_dp_not_available": "LocalTuya localtuya.set_dp service not found. Install and configure LocalTuya integration first.",
       "tuya_pack_not_found": "Selected Tuya IR pack is not available."
     },
     "error": {
       "validation_transport_unavailable": "Broadlink transport is unavailable.",
       "validation_failed": "Validation commands failed. Check logs for details.",
       "broadlink_entity_required": "Choose a Broadlink remote for the Broadlink IR path.",
-      "tuya_set_dp_not_available": "LocalTuya is not installed or localtuya.set_dp service is unavailable.",
-      "tuya_transport_unavailable": "Cannot reach Tuya IR blaster. Check Device ID, Local Key, and IP address.",
+      "tuya_remote_entity_not_found": "Selected remote entity not found in Home Assistant.",
+      "tuya_remote_entity_unavailable": "Selected remote entity is unavailable. Check that your IR blaster is powered on and connected.",
+      "tuya_transport_unavailable": "Cannot reach Tuya IR blaster. Check the selected Tuya IR remote entity.",
       "tuya_pack_not_found": "Selected Tuya IR pack could not be loaded. Check packs/tuya/ directory."
     }
   },
@@ -102,13 +98,8 @@
           "broadlink_entity": "Broadlink remote",
           "model_pack": "Model pack",
           "ir_provider": "IR transport",
+          "tuya_ir_entity": "Tuya IR remote entity",
           "tuya_model_pack": "Tuya IR command pack",
-          "tuya_local_device_id": "Tuya Device ID",
-          "tuya_local_key": "Tuya Local Key",
-          "tuya_host": "IR blaster IP address",
-          "tuya_ir_dp": "IR send datapoint ID (default: 201)",
-          "tuya_ir_no_ack_mode": "Tuya IR: do not sync OFF from power sensor; relax confirmation logs",
-          "tuya_ir_send_blocking": "Tuya IR: wait for service call to finish (recommended)",
           "temperature_sensor": "Room temperature sensor",
           "humidity_sensor": "Room humidity sensor",
           "power_sensor": "Power sensor",
@@ -164,7 +155,7 @@
     },
     "tuya_transport_unavailable": {
       "title": "Tuya IR blaster unreachable",
-      "description": "AeroState cannot reach the Tuya IR blaster. Check that LocalTuya is installed, the device is online, and the Device ID / Local Key / IP address are correct in Options."
+      "description": "AeroState cannot reach the selected Tuya IR remote entity. Check that the IR blaster is powered on and available in Home Assistant."
     },
     "tuya_pack_missing": {
       "title": "Tuya IR pack missing",

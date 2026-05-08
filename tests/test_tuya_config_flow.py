@@ -15,35 +15,31 @@ pytest.importorskip("homeassistant")
 from custom_components.aerostate.config_flow import AeroStateConfigFlow
 from custom_components.aerostate.const import (
     CONF_IR_PROVIDER,
-    CONF_TUYA_HOST,
-    CONF_TUYA_IR_DP,
-    CONF_TUYA_IR_SEND_BLOCKING,
-    CONF_TUYA_LOCAL_DEVICE_ID,
-    CONF_TUYA_LOCAL_KEY,
+    CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
 )
 
 
-class _Services:
-    def __init__(self, available: bool) -> None:
-        self._available = available
-
-    def has_service(self, domain: str, service: str) -> bool:
-        return self._available and domain == "localtuya" and service == "set_dp"
-
-
 class _States:
-    @staticmethod
-    def async_entity_ids(_domain: str) -> list[str]:
-        return ["remote.test"]
+    def __init__(self, states: dict[str, str] | None = None) -> None:
+        self._states = states or {"remote.test_ir": "on"}
+
+    def async_entity_ids(self, _domain: str) -> list[str]:
+        return ["remote.test", "remote.test_ir"]
+
+    def get(self, entity_id: str):
+        state = self._states.get(entity_id)
+        if state is None:
+            return None
+        return SimpleNamespace(state=state)
 
 
-def _hass(*, localtuya_available: bool = True) -> SimpleNamespace:
+def _hass(*, states: dict[str, str] | None = None) -> SimpleNamespace:
     return SimpleNamespace(
-        services=_Services(localtuya_available),
-        states=_States(),
+        services=SimpleNamespace(has_service=lambda *_args: False),
+        states=_States(states),
         config_entries=SimpleNamespace(async_entries=lambda _domain: []),
     )
 
@@ -77,7 +73,7 @@ async def test_tuya_config_flow_broadlink_path_unchanged() -> None:
 
     assert result["type"] == "form"
     assert result["step_id"] == "broadlink_remote"
-    assert CONF_TUYA_LOCAL_DEVICE_ID not in _schema_keys(result["data_schema"])
+    assert CONF_TUYA_IR_ENTITY not in _schema_keys(result["data_schema"])
 
 
 @pytest.mark.asyncio
@@ -89,19 +85,15 @@ async def test_tuya_config_flow_tuya_path_shows_tuya_device_step() -> None:
 
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_device"
-    assert CONF_TUYA_LOCAL_DEVICE_ID in _schema_keys(result["data_schema"])
+    assert CONF_TUYA_IR_ENTITY in _schema_keys(result["data_schema"])
 
 
 def test_tuya_device_step_has_human_readable_labels() -> None:
     strings = json.loads(Path("custom_components/aerostate/strings.json").read_text(encoding="utf-8"))
     labels = strings["config"]["step"]["tuya_device"]["data"]
     expected = {
-        CONF_TUYA_LOCAL_DEVICE_ID,
-        CONF_TUYA_LOCAL_KEY,
-        CONF_TUYA_HOST,
-        CONF_TUYA_IR_DP,
+        CONF_TUYA_IR_ENTITY,
         CONF_TUYA_MODEL_PACK,
-        CONF_TUYA_IR_SEND_BLOCKING,
     }
 
     assert set(labels) == expected
@@ -111,24 +103,37 @@ def test_tuya_device_step_has_human_readable_labels() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tuya_device_step_rejects_missing_localtuya_service() -> None:
+async def test_tuya_device_step_rejects_missing_remote_entity() -> None:
     flow = AeroStateConfigFlow()
-    flow.hass = _hass(localtuya_available=False)
+    flow.hass = _hass(states={})
 
     result = await flow.async_step_tuya_device(
         {
-            CONF_TUYA_LOCAL_DEVICE_ID: "bf1234567890",
-            CONF_TUYA_LOCAL_KEY: "secret",
-            CONF_TUYA_HOST: "192.0.2.10",
-            CONF_TUYA_IR_DP: 201,
+            CONF_TUYA_IR_ENTITY: "remote.missing",
             CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
-            CONF_TUYA_IR_SEND_BLOCKING: True,
         },
     )
 
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_device"
-    assert result["errors"] == {"base": "tuya_set_dp_not_available"}
+    assert result["errors"] == {"base": "tuya_remote_entity_not_found"}
+
+
+@pytest.mark.asyncio
+async def test_tuya_device_step_rejects_unavailable_remote_entity() -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(states={"remote.test_ir": "unavailable"})
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tuya_device"
+    assert result["errors"] == {"base": "tuya_remote_entity_unavailable"}
 
 
 @pytest.mark.asyncio
@@ -138,20 +143,15 @@ async def test_tuya_confirm_step_shows_before_entry_creation() -> None:
 
     result = await flow.async_step_tuya_device(
         {
-            CONF_TUYA_LOCAL_DEVICE_ID: "bf1234567890",
-            CONF_TUYA_LOCAL_KEY: "secret",
-            CONF_TUYA_HOST: "192.0.2.10",
-            CONF_TUYA_IR_DP: 201,
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
-            CONF_TUYA_IR_SEND_BLOCKING: True,
         },
     )
 
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_confirm"
     placeholders = result["description_placeholders"]
-    assert placeholders["device_id_short"] == "bf123456..."
-    assert placeholders["host"] == "192.0.2.10"
+    assert placeholders["remote_entity"] == "remote.test_ir"
     assert placeholders["pack_label"] == "PC09SQ NSJ"
 
 
@@ -162,19 +162,14 @@ async def test_tuya_confirm_creates_entry() -> None:
     flow.async_set_unique_id = AsyncMock()
     flow._abort_if_unique_id_configured = lambda: None
     flow._tuya_data = {
-        CONF_TUYA_LOCAL_DEVICE_ID: "bf1234567890",
-        CONF_TUYA_LOCAL_KEY: "secret",
-        CONF_TUYA_HOST: "192.0.2.10",
-        CONF_TUYA_IR_DP: 201,
+        CONF_TUYA_IR_ENTITY: "remote.test_ir",
         CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
-        CONF_TUYA_IR_SEND_BLOCKING: True,
     }
 
     result = await flow.async_step_tuya_confirm({})
 
     assert result["type"] == "create_entry"
     assert result["data"][CONF_IR_PROVIDER] == IR_PROVIDER_TUYA
-    assert result["data"][CONF_TUYA_LOCAL_DEVICE_ID] == "bf1234567890"
-    assert result["data"][CONF_TUYA_HOST] == "192.0.2.10"
+    assert result["data"][CONF_TUYA_IR_ENTITY] == "remote.test_ir"
     assert result["data"][CONF_TUYA_MODEL_PACK] == "tuya.lg_pc09sq_nsj.v1"
     assert "broadlink_entity" not in result["data"]

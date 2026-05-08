@@ -17,9 +17,7 @@ from .const import (
     CONF_MODEL_PACK,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
-    CONF_TUYA_HOST,
     CONF_TUYA_IR_ENTITY,
-    CONF_TUYA_LOCAL_DEVICE_ID,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
     DOMAIN,
@@ -194,14 +192,11 @@ async def async_get_config_entry_diagnostics(
                 CONF_TUYA_MODEL_PACK,
                 entry.data.get(CONF_TUYA_MODEL_PACK),
             )
-            tuya_device_id = entry.options.get(
-                CONF_TUYA_LOCAL_DEVICE_ID,
-                entry.data.get(CONF_TUYA_LOCAL_DEVICE_ID, ""),
+            tuya_remote_entity = entry.options.get(
+                CONF_TUYA_IR_ENTITY,
+                entry.data.get(CONF_TUYA_IR_ENTITY, ""),
             )
-            tuya_host = entry.options.get(
-                CONF_TUYA_HOST,
-                entry.data.get(CONF_TUYA_HOST, ""),
-            )
+            tuya_remote_state = hass.states.get(tuya_remote_entity) if tuya_remote_entity else None
             try:
                 tuya_pack = get_tuya_pack(tuya_pack_id)
                 tuya_pack_info: dict[str, Any] = {
@@ -217,10 +212,10 @@ async def async_get_config_entry_diagnostics(
 
             payload["tuya_ir"] = {
                 "provider": "tuya",
-                "device_id": tuya_device_id[:8] + "..." if tuya_device_id else None,
-                "host": tuya_host,
+                "transport": "remote.send_command",
+                "remote_entity": tuya_remote_entity or None,
+                "remote_entity_state": tuya_remote_state.state if tuya_remote_state else None,
                 "pack": tuya_pack_info,
-                "localtuya_set_dp_available": hass.services.has_service("localtuya", "set_dp"),
             }
         except Exception as err:
             payload["tuya_ir"] = {"error": str(err)}

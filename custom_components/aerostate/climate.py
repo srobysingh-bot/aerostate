@@ -28,6 +28,7 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
     DEFAULT_NAME,
@@ -783,17 +784,13 @@ async def async_setup_entry(
         model_pack_id = entry.options.get(CONF_MODEL_PACK, entry.data.get(CONF_MODEL_PACK))
 
         if ir_provider == IR_PROVIDER_TUYA:
-            from .const import CONF_TUYA_LOCAL_DEVICE_ID
             from .packs.tuya.registry import get_tuya_pack
 
-            tuya_device_id = entry.options.get(
-                CONF_TUYA_LOCAL_DEVICE_ID,
-                entry.data.get(CONF_TUYA_LOCAL_DEVICE_ID),
-            )
+            tuya_remote_entity = entry.options.get(CONF_TUYA_IR_ENTITY, entry.data.get(CONF_TUYA_IR_ENTITY))
             tuya_pack_id = entry.options.get(CONF_TUYA_MODEL_PACK, entry.data.get(CONF_TUYA_MODEL_PACK))
-            if not all([tuya_device_id, tuya_pack_id]):
+            if not all([tuya_remote_entity, tuya_pack_id]):
                 _LOGGER.error(
-                    "Tuya IR entry missing device_id or model_pack. Go to Options and complete Tuya IR setup.",
+                    "Tuya IR entry missing remote entity or model_pack. Go to Options and complete Tuya IR setup.",
                 )
                 return False
             try:
