@@ -52,15 +52,11 @@ class TuyaIRManager:
         try:
             raw_command = resolve_learned_code(self._learned_codes, state)
         except LearnedCodeNotAvailable as err:
+            _LOGGER.warning("TuyaIRManager: no learned code for state=%s - %s", state, err)
             await self._async_notify_missing_code(state, err)
             raise
 
-        _LOGGER.debug(
-            "TuyaIRManager: sending state=%s via entity=%s raw_len=%d",
-            state,
-            self._remote_entity_id,
-            len(raw_command),
-        )
+        _LOGGER.debug("TuyaIRManager: sending state=%s via %s", state, self._remote_entity_id)
 
         await self._hass.services.async_call(
             "remote",
@@ -74,29 +70,18 @@ class TuyaIRManager:
 
     async def _async_notify_missing_code(self, state: dict[str, Any], err: LearnedCodeNotAvailable) -> None:
         """Create a visible HA notification for unsupported learned-code gaps."""
-        hvac_mode = str(state.get("hvac_mode", "unknown"))
-        temperature = state.get("target_temperature")
-        fan_mode = str(state.get("fan_mode") or "auto")
-        notification_id = (
-            "aerostate_tuya_missing_code_"
-            f"{self._remote_entity_id}_{hvac_mode}_{temperature}_{fan_mode}"
-        )
-        notification_id = "".join(ch if ch.isalnum() else "_" for ch in notification_id.lower())
         message = (
-            f"{err}\n\n"
-            f"Device name: {self._device_name}\n"
-            f"Remote entity: {self._remote_entity_id}\n"
-            f"Requested state: {state}\n\n"
-            "Learn the missing command with remote.learn_command, then retry."
+            f"Cannot send command - {err}\n\n"
+            "Learn the missing code using remote.learn_command then reload AeroState."
         )
         try:
             await self._hass.services.async_call(
                 "persistent_notification",
                 "create",
                 {
-                    "title": "AeroState Tuya IR command not learned",
+                    "title": "AeroState: IR code not learned",
                     "message": message,
-                    "notification_id": notification_id,
+                    "notification_id": "aerostate_tuya_missing_code",
                 },
                 blocking=False,
             )
