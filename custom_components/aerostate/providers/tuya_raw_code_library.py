@@ -141,23 +141,80 @@ def list_portable_raw_code_sources(hass) -> list[dict[str, Any]]:
 
 def read_portable_raw_codes(hass, device_name: str) -> dict[str, str]:
     """Read raw codes from AeroState's portable or bundled library."""
-    usable_packs: list[tuple[str, str, dict[str, str]]] = []
+    usable_packs: list[tuple[str, str, str, dict[str, Any], dict[str, str]]] = []
     for source, filename, path in _iter_library_files(hass):
         data, codes = _load_portable_file(path)
         if not codes:
             continue
-        usable_packs.append((source, filename, codes))
-        if _matches_pack(data, device_name) or _slug(filename[:-5]) == _slug(device_name):
+        usable_packs.append((source, filename, path, data, codes))
+
+    matching_packs = [
+        pack
+        for pack in usable_packs
+        if _matches_pack(pack[3], device_name) or _slug(pack[1][:-5]) == _slug(device_name)
+    ]
+    bundled_packs = [pack for pack in usable_packs if pack[0] == "bundled"]
+    portable_packs = [pack for pack in usable_packs if pack[0] == "portable"]
+
+    if matching_packs:
+        selected = list(matching_packs)
+        if len(bundled_packs) == 1 and bundled_packs[0] not in selected:
+            selected.insert(0, bundled_packs[0])
+
+        selected.sort(key=lambda pack: 0 if pack[0] == "bundled" else 1)
+        merged: dict[str, str] = {}
+        labels: list[str] = []
+        for source, filename, _path, _data, codes in selected:
+            before = len(merged)
+            merged.update(codes)
+            labels.append(f"{source}:{filename}({len(codes)})")
             _LOGGER.info(
-                "Loaded %d Tuya raw codes from AeroState %s raw-code pack %s",
-                len(codes),
+                "Loaded Tuya raw codes from AeroState %s raw-code pack %s (%d commands, merged %d -> %d)",
                 source,
                 filename,
+                len(codes),
+                before,
+                len(merged),
             )
-            return codes
+        if len(selected) > 1:
+            _LOGGER.warning(
+                "Merged AeroState Tuya raw-code sources for '%s': %s; user packs override bundled labels",
+                device_name,
+                ", ".join(labels),
+            )
+        return merged
+
+    if len(portable_packs) == 1:
+        selected = [portable_packs[0]]
+        if len(bundled_packs) == 1:
+            selected.insert(0, bundled_packs[0])
+        merged: dict[str, str] = {}
+        labels: list[str] = []
+        for source, filename, _path, _data, codes in selected:
+            merged.update(codes)
+            labels.append(f"{source}:{filename}({len(codes)})")
+        _LOGGER.warning(
+            "Configured Tuya raw-code source '%s' did not match pack metadata; "
+            "using the only portable user pack%s: %s",
+            device_name,
+            " with bundled fallback" if len(selected) > 1 else "",
+            ", ".join(labels),
+        )
+        return merged
+
+    if len(bundled_packs) == 1:
+        source, filename, _path, _data, codes = bundled_packs[0]
+        _LOGGER.warning(
+            "Loaded %d Tuya raw codes from the only bundled AeroState pack %s; "
+            "configured name '%s' did not match pack metadata",
+            len(codes),
+            filename,
+            device_name,
+        )
+        return codes
 
     if len(usable_packs) == 1:
-        source, filename, codes = usable_packs[0]
+        source, filename, _path, _data, codes = usable_packs[0]
         _LOGGER.warning(
             "Loaded %d Tuya raw codes from the only AeroState %s raw-code pack %s; "
             "configured name '%s' did not match pack metadata",

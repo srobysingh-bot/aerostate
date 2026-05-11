@@ -22,6 +22,14 @@ from custom_components.aerostate.providers import tuya_raw_code_library
 from custom_components.aerostate.providers.tuya_raw_code_library import export_portable_raw_codes
 
 
+@pytest.fixture(autouse=True)
+def _isolate_bundled_raw_code_library(tmp_path, monkeypatch) -> None:
+    """Keep most storage tests focused unless a test opts into bundled packs."""
+    bundled_dir = tmp_path / "empty_bundled_raw_codes"
+    bundled_dir.mkdir()
+    monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(bundled_dir))
+
+
 def _hass_with_storage(tmp_path, data: dict) -> SimpleNamespace:
     storage_dir = tmp_path / ".storage"
     storage_dir.mkdir()
@@ -232,6 +240,30 @@ def test_read_learned_codes_uses_bundled_pack_without_ha_storage(tmp_path, monke
     }
 
 
+def test_read_learned_codes_uses_single_bundled_pack_when_name_differs(tmp_path, monkeypatch) -> None:
+    bundled_dir = tmp_path / "bundled_raw_codes"
+    bundled_dir.mkdir()
+    (bundled_dir / "lg_pc09sq_nsj_v1.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "lg_pc09sq_nsj_v1",
+                "device_name": "LG PC09SQ NSJ",
+                "format": "tuya_remote_send_command_raw",
+                "commands": {"power_off": "raw:bundled_off", "temp_25": "raw:bundled_25"},
+            },
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(bundled_dir))
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Dining Room") == {
+        "power_off": "raw:bundled_off",
+        "temp_25": "raw:bundled_25",
+    }
+
+
 def test_read_learned_codes_uses_single_portable_pack_when_name_differs(tmp_path) -> None:
     library_dir = tmp_path / "aerostate_tuya_raw_codes"
     library_dir.mkdir()
@@ -250,6 +282,79 @@ def test_read_learned_codes_uses_single_portable_pack_when_name_differs(tmp_path
     hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
 
     assert read_learned_codes(hass, "Living AC IR") == {"power_off": "raw:portable_off"}
+
+
+def test_read_learned_codes_merges_incomplete_user_pack_with_bundled_pack(tmp_path, monkeypatch) -> None:
+    library_dir = tmp_path / "aerostate_tuya_raw_codes"
+    library_dir.mkdir()
+    (library_dir / "living_ac_ir.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "living_ac_ir",
+                "device_name": "Living AC IR",
+                "commands": {"temp_24": "raw:user_24"},
+            },
+        ),
+        encoding="utf-8",
+    )
+    bundled_dir = tmp_path / "bundled_raw_codes"
+    bundled_dir.mkdir()
+    (bundled_dir / "lg_pc09sq_nsj_v1.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "lg_pc09sq_nsj_v1",
+                "device_name": "LG PC09SQ NSJ",
+                "commands": {"power_off": "raw:bundled_off", "temp_24": "raw:bundled_24", "temp_25": "raw:bundled_25"},
+            },
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(bundled_dir))
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Living AC IR") == {
+        "power_off": "raw:bundled_off",
+        "temp_24": "raw:user_24",
+        "temp_25": "raw:bundled_25",
+    }
+
+
+def test_read_learned_codes_uses_single_user_pack_with_bundled_fallback_when_name_differs(tmp_path, monkeypatch) -> None:
+    library_dir = tmp_path / "aerostate_tuya_raw_codes"
+    library_dir.mkdir()
+    (library_dir / "custom_room_pack.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "custom_room_pack",
+                "device_name": "Bedroom",
+                "commands": {"temp_24": "raw:user_24"},
+            },
+        ),
+        encoding="utf-8",
+    )
+    bundled_dir = tmp_path / "bundled_raw_codes"
+    bundled_dir.mkdir()
+    (bundled_dir / "lg_pc09sq_nsj_v1.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "lg_pc09sq_nsj_v1",
+                "device_name": "LG PC09SQ NSJ",
+                "commands": {"power_off": "raw:bundled_off", "temp_24": "raw:bundled_24"},
+            },
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(bundled_dir))
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    assert read_learned_codes(hass, "Dining Room") == {
+        "power_off": "raw:bundled_off",
+        "temp_24": "raw:user_24",
+    }
 
 
 def test_read_learned_codes_merges_portable_pack_with_localtuya_cache(tmp_path) -> None:
@@ -277,9 +382,28 @@ def test_read_learned_codes_merges_portable_pack_with_localtuya_cache(tmp_path) 
     )
 
     assert read_learned_codes(hass, "Living AC IR") == {
-        "power_off": "raw:portable_off",
+        "power_off": "raw:storage_off",
         "temp_29": "raw:storage_29",
     }
+
+
+def test_bundled_lg_raw_pack_has_required_off_and_high_temp_fallback_codes(tmp_path, monkeypatch) -> None:
+    real_bundled_dir = Path(tuya_raw_code_library.__file__).resolve().parents[1] / "packs" / "tuya" / "raw_codes"
+    monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(real_bundled_dir))
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)))
+
+    codes = read_learned_codes(hass, "Dining Room")
+
+    assert codes["power_off"].startswith("raw:")
+    assert codes["temp_25"].startswith("raw:")
+    assert codes["temp_30"].startswith("raw:")
+    assert (
+        resolve_learned_code(
+            codes,
+            {"hvac_mode": "cool", "target_temperature": 25, "fan_mode": "high"},
+        )
+        == codes["temp_25"]
+    )
 
 
 def test_export_portable_raw_codes_writes_copyable_pack(tmp_path) -> None:
@@ -397,8 +521,7 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_sends_power_on_before_first_running_state(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+async def test_tuya_manager_sends_running_state_directly_without_power_on_preamble(tmp_path) -> None:
     hass = _hass_with_storage(
         tmp_path,
         {
@@ -423,14 +546,12 @@ async def test_tuya_manager_sends_power_on_before_first_running_state(tmp_path, 
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
-        "raw:on",
         "raw:cool24",
     ]
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_sends_power_on_again_after_off(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+async def test_tuya_manager_sends_off_then_running_state_without_extra_toggle(tmp_path) -> None:
     hass = _hass_with_storage(
         tmp_path,
         {
@@ -457,14 +578,12 @@ async def test_tuya_manager_sends_power_on_again_after_off(tmp_path, monkeypatch
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         "raw:off",
-        "raw:on",
         "raw:cool24",
     ]
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_does_not_repeat_power_on_when_already_running(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+async def test_tuya_manager_sends_each_resolved_running_state_once(tmp_path) -> None:
     hass = _hass_with_storage(
         tmp_path,
         {
@@ -493,7 +612,6 @@ async def test_tuya_manager_does_not_repeat_power_on_when_already_running(tmp_pa
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
-        "raw:on",
         "raw:cool24",
         "raw:cool25",
     ]

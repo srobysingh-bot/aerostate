@@ -22,6 +22,14 @@ from custom_components.aerostate.const import (
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
 )
+from custom_components.aerostate.providers import tuya_raw_code_library
+
+
+@pytest.fixture(autouse=True)
+def _isolate_bundled_raw_code_library(tmp_path, monkeypatch) -> None:
+    bundled_dir = tmp_path / "empty_bundled_raw_codes"
+    bundled_dir.mkdir()
+    monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(bundled_dir))
 
 
 class _States:

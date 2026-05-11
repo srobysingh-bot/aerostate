@@ -218,8 +218,8 @@ def read_learned_codes(hass, device_name: str) -> dict[str, str]:
     localtuya_codes = read_localtuya_storage_codes(hass, device_name, log_missing=not bool(portable_codes))
 
     if portable_codes and localtuya_codes:
-        merged_codes = dict(localtuya_codes)
-        merged_codes.update(portable_codes)
+        merged_codes = dict(portable_codes)
+        merged_codes.update(localtuya_codes)
         if len(merged_codes) > len(portable_codes):
             _LOGGER.warning(
                 "AeroState portable raw-code pack for '%s' had %d commands; "
