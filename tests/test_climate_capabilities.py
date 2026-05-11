@@ -11,6 +11,12 @@ pytest.importorskip("homeassistant")
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
+from custom_components.aerostate.const import (
+    CONF_IR_PROVIDER,
+    CONF_TUYA_DEVICE_NAME,
+    CONF_TUYA_IR_ENTITY,
+    IR_PROVIDER_TUYA,
+)
 from custom_components.aerostate.climate import AeroStateClimate
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
 
@@ -101,6 +107,18 @@ def _entry() -> SimpleNamespace:
     )
 
 
+def _tuya_entry() -> SimpleNamespace:
+    return SimpleNamespace(
+        entry_id="entry_tuya",
+        data={
+            CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: "Dining Room",
+        },
+        options={},
+    )
+
+
 def test_climate_supported_features_respect_pack_capabilities() -> None:
     climate = AeroStateClimate(
         hass=_FakeHass(),
@@ -119,6 +137,32 @@ def test_climate_supported_features_respect_pack_capabilities() -> None:
     assert climate.swing_horizontal_modes is None
     assert climate.hvac_modes == [HVACMode.OFF, HVACMode.COOL]
     assert climate.fan_modes == ["auto", "low", "mid", "high"]
+
+
+def test_tuya_climate_exposes_learned_independent_swing_modes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "custom_components.aerostate.providers.localtuya_rc_storage.read_learned_codes",
+        lambda _hass, _device_name: {
+            "power_off": "raw:off",
+            "vertical_stop": "raw:vstop",
+            "horizontal_stop": "raw:hstop",
+        },
+    )
+
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_tuya_entry(),
+        pack=_cool_only_pack(),
+        ir_manager=IdleIRManager(),
+        engine=_FakeEngine(),
+    )
+
+    features = climate.supported_features
+    assert features & ClimateEntityFeature.SWING_MODE
+    if hasattr(ClimateEntityFeature, "SWING_HORIZONTAL_MODE"):
+        assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
+    assert climate.swing_modes == ["off", "on"]
+    assert climate.swing_horizontal_modes == ["off", "on"]
 
 
 def _mute_climate_state_write(climate: object) -> None:

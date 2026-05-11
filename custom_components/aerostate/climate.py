@@ -28,8 +28,10 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
+    DEFAULT_TUYA_DEVICE_NAME,
     DEFAULT_IR_PROVIDER,
     DEFAULT_NAME,
     DOMAIN,
@@ -97,6 +99,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
 
         self._supported_swing_vertical_modes = [mode for mode in declared_vertical if mode in engine_vertical]
         self._supported_swing_horizontal_modes = [mode for mode in declared_horizontal if mode in engine_horizontal]
+        self._augment_tuya_swing_modes_from_learned_codes()
         self._supported_preset_modes = [mode for mode in declared_presets if mode in engine_presets]
 
         self._attr_swing_mode = (
@@ -149,6 +152,47 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         """Return the entry's requested IR provider."""
         provider = str(self._entry_value(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER) or DEFAULT_IR_PROVIDER)
         return provider.strip().lower()
+
+    def _augment_tuya_swing_modes_from_learned_codes(self) -> None:
+        """Expose simple Tuya swing controls when independent learned codes exist."""
+        if self._configured_ir_provider() != IR_PROVIDER_TUYA:
+            return
+
+        try:
+            from .providers.localtuya_rc_storage import read_learned_codes
+
+            device_name = str(
+                self._entry_value(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME)
+                or DEFAULT_TUYA_DEVICE_NAME
+            )
+            learned_codes = read_learned_codes(self._hass, device_name)
+        except Exception as err:
+            _LOGGER.debug("Could not inspect Tuya learned swing codes: %s", err)
+            return
+
+        if self._has_learned_swing_axis(learned_codes, "vertical"):
+            self._supported_swing_vertical_modes = self._with_binary_swing_modes(
+                self._supported_swing_vertical_modes
+            )
+        if self._has_learned_swing_axis(learned_codes, "horizontal"):
+            self._supported_swing_horizontal_modes = self._with_binary_swing_modes(
+                self._supported_swing_horizontal_modes
+            )
+
+    @staticmethod
+    def _has_learned_swing_axis(learned_codes: dict[str, str], axis: str) -> bool:
+        """Return True when learned raw codes contain one axis-specific swing command."""
+        prefixes = (f"{axis}_", f"swing_{axis}_")
+        return any(command_name.startswith(prefixes) for command_name in learned_codes)
+
+    @staticmethod
+    def _with_binary_swing_modes(existing_modes: list[str]) -> list[str]:
+        """Ensure Home Assistant has simple off/on controls for independent swing codes."""
+        modes = list(existing_modes)
+        for mode in ("off", "on"):
+            if mode not in modes:
+                modes.append(mode)
+        return modes
 
     def _get_tuya_ir_manager(self) -> Any:
         """Return the cached standalone Tuya manager for this entity."""
