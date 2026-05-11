@@ -16,6 +16,7 @@ from custom_components.aerostate.providers.learned_code_resolver import (
     get_coverage_summary,
     resolve_independent_swing_commands,
     resolve_learned_code,
+    swing_modes_from_learned_codes,
 )
 from custom_components.aerostate.providers.localtuya_rc_storage import read_learned_codes
 from custom_components.aerostate.providers.tuya_ir_manager import TuyaIRManager
@@ -556,6 +557,30 @@ def test_resolve_independent_swing_does_not_send_initial_default_stop() -> None:
         {"horizontal_stop": "raw:hstop", "vertical_stop": "raw:vstop"},
         {"swing_vertical": "off", "swing_horizontal": "off"},
     ) == []
+
+
+def test_swing_modes_from_learned_codes_exposes_real_labels_only() -> None:
+    codes = {
+        "horizontal_stop": "raw:hstop",
+        "horizontal_left_mid": "raw:hleft",
+        "horizontal_swing_right_mid": "raw:hrightmid",
+        "horizontal_right_most": "raw:hright",
+        "vertical_stop": "raw:vstop",
+        "vertical_swing": "raw:vswing",
+        "vertical_highest": "raw:vhighest",
+    }
+
+    assert swing_modes_from_learned_codes(codes, "horizontal") == [
+        "off",
+        "left_mid",
+        "right_mid",
+        "right_most",
+    ]
+    assert swing_modes_from_learned_codes(codes, "vertical") == [
+        "off",
+        "swing",
+        "highest",
+    ]
 
 
 @pytest.mark.asyncio

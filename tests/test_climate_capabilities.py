@@ -145,7 +145,11 @@ def test_tuya_climate_exposes_learned_independent_swing_modes(monkeypatch) -> No
         lambda _hass, _device_name: {
             "power_off": "raw:off",
             "vertical_stop": "raw:vstop",
+            "vertical_swing": "raw:vswing",
+            "vertical_highest": "raw:vhigh",
             "horizontal_stop": "raw:hstop",
+            "horizontal_left_mid": "raw:hleft",
+            "horizontal_right_most": "raw:hright",
         },
     )
 
@@ -161,8 +165,29 @@ def test_tuya_climate_exposes_learned_independent_swing_modes(monkeypatch) -> No
     assert features & ClimateEntityFeature.SWING_MODE
     if hasattr(ClimateEntityFeature, "SWING_HORIZONTAL_MODE"):
         assert features & ClimateEntityFeature.SWING_HORIZONTAL_MODE
-    assert climate.swing_modes == ["off", "on"]
-    assert climate.swing_horizontal_modes == ["off", "on"]
+    assert climate.swing_modes == ["off", "swing", "highest"]
+    assert climate.swing_horizontal_modes == ["off", "left_mid", "right_most"]
+
+
+def test_tuya_climate_does_not_expose_fake_swing_on_without_learned_on_label(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "custom_components.aerostate.providers.localtuya_rc_storage.read_learned_codes",
+        lambda _hass, _device_name: {
+            "power_off": "raw:off",
+            "horizontal_stop": "raw:hstop",
+        },
+    )
+
+    climate = AeroStateClimate(
+        hass=_FakeHass(),
+        entry=_tuya_entry(),
+        pack=_cool_only_pack(),
+        ir_manager=IdleIRManager(),
+        engine=_FakeEngine(),
+    )
+
+    assert climate.swing_modes is None
+    assert climate.swing_horizontal_modes == ["off"]
 
 
 def _mute_climate_state_write(climate: object) -> None:

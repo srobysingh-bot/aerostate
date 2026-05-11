@@ -170,26 +170,26 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             _LOGGER.debug("Could not inspect Tuya learned swing codes: %s", err)
             return
 
-        if self._has_learned_swing_axis(learned_codes, "vertical"):
-            self._supported_swing_vertical_modes = self._with_binary_swing_modes(
-                self._supported_swing_vertical_modes
+        from .providers.learned_code_resolver import swing_modes_from_learned_codes
+
+        vertical_modes = swing_modes_from_learned_codes(learned_codes, "vertical")
+        horizontal_modes = swing_modes_from_learned_codes(learned_codes, "horizontal")
+        if vertical_modes:
+            self._supported_swing_vertical_modes = self._merge_swing_modes(
+                self._supported_swing_vertical_modes,
+                vertical_modes,
             )
-        if self._has_learned_swing_axis(learned_codes, "horizontal"):
-            self._supported_swing_horizontal_modes = self._with_binary_swing_modes(
-                self._supported_swing_horizontal_modes
+        if horizontal_modes:
+            self._supported_swing_horizontal_modes = self._merge_swing_modes(
+                self._supported_swing_horizontal_modes,
+                horizontal_modes,
             )
 
     @staticmethod
-    def _has_learned_swing_axis(learned_codes: dict[str, str], axis: str) -> bool:
-        """Return True when learned raw codes contain one axis-specific swing command."""
-        prefixes = (f"{axis}_", f"swing_{axis}_")
-        return any(command_name.startswith(prefixes) for command_name in learned_codes)
-
-    @staticmethod
-    def _with_binary_swing_modes(existing_modes: list[str]) -> list[str]:
-        """Ensure Home Assistant has simple off/on controls for independent swing codes."""
+    def _merge_swing_modes(existing_modes: list[str], learned_modes: list[str]) -> list[str]:
+        """Merge pack-declared and learned swing modes without fake options."""
         modes = list(existing_modes)
-        for mode in ("off", "on"):
+        for mode in learned_modes:
             if mode not in modes:
                 modes.append(mode)
         return modes

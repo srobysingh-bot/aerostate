@@ -9,6 +9,28 @@ _LOGGER = logging.getLogger(__name__)
 
 _SWING_OFF_VALUES = {"off", "none", "stop", "stopped", "false", "0"}
 _SWING_ON_VALUES = {"on", "swing", "auto", "start", "true", "1"}
+_SWING_MODE_ORDER = [
+    "off",
+    "on",
+    "swing",
+    "highest",
+    "high",
+    "upper_middle",
+    "middle",
+    "mid",
+    "low",
+    "lowest",
+    "left_most",
+    "left_mid",
+    "left",
+    "center",
+    "right",
+    "right_mid",
+    "right_most",
+    "left_swing",
+    "right_swing",
+    "full_swing",
+]
 
 
 class LearnedCodeNotAvailable(KeyError):
@@ -213,6 +235,46 @@ def resolve_independent_swing_commands(
                 current_norm,
             )
     return commands
+
+
+def swing_modes_from_learned_codes(learned_codes: dict[str, str], axis: str) -> list[str]:
+    """Return Home Assistant swing modes backed by learned labels for one axis."""
+    modes = {
+        mode
+        for label in learned_codes
+        if (mode := _swing_mode_from_label(label, axis))
+    }
+    ordered = [mode for mode in _SWING_MODE_ORDER if mode in modes]
+    ordered.extend(sorted(modes - set(ordered)))
+    return ordered
+
+
+def _swing_mode_from_label(label: str, axis: str) -> str | None:
+    """Infer the HA swing mode represented by a learned command label."""
+    label = label.strip().lower().replace("-", "_").replace(" ", "_")
+    prefixes = (f"swing_{axis}_", f"{axis}_swing_", f"{axis}_")
+    suffix = None
+    for prefix in prefixes:
+        if label.startswith(prefix):
+            suffix = label[len(prefix) :]
+            break
+
+    if suffix is None:
+        if label in (f"swing_{axis}", f"{axis}_swing"):
+            return "swing"
+        return None
+
+    if not suffix:
+        return None
+    if suffix in _SWING_OFF_VALUES:
+        return "off"
+    if suffix in {"on", "start"}:
+        return "on"
+    if suffix in {"auto", "swing"}:
+        return "swing"
+    if suffix == "toggle":
+        return "swing"
+    return suffix
 
 
 def _normalize_swing_mode(value: object) -> str | None:
