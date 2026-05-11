@@ -521,7 +521,8 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_sends_running_state_directly_without_power_on_preamble(tmp_path) -> None:
+async def test_tuya_manager_sends_power_on_before_first_running_state(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
     hass = _hass_with_storage(
         tmp_path,
         {
@@ -546,12 +547,14 @@ async def test_tuya_manager_sends_running_state_directly_without_power_on_preamb
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        "raw:on",
         "raw:cool24",
     ]
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_sends_off_then_running_state_without_extra_toggle(tmp_path) -> None:
+async def test_tuya_manager_sends_power_on_again_after_off(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
     hass = _hass_with_storage(
         tmp_path,
         {
@@ -578,12 +581,14 @@ async def test_tuya_manager_sends_off_then_running_state_without_extra_toggle(tm
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         "raw:off",
+        "raw:on",
         "raw:cool24",
     ]
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_sends_each_resolved_running_state_once(tmp_path) -> None:
+async def test_tuya_manager_does_not_repeat_power_on_when_already_running(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
     hass = _hass_with_storage(
         tmp_path,
         {
@@ -612,6 +617,7 @@ async def test_tuya_manager_sends_each_resolved_running_state_once(tmp_path) -> 
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        "raw:on",
         "raw:cool24",
         "raw:cool25",
     ]
