@@ -37,6 +37,7 @@ class TuyaIRManager:
         self._last_known_power: bool | None = None
         self._last_swing_vertical: str | None = None
         self._last_swing_horizontal: str | None = None
+        self._last_main_state_signature: tuple[object, ...] | None = None
         self._localtuya_named_command_devices: dict[str, str | None] = {}
 
     def _ensure_codes_loaded(self) -> None:
@@ -67,6 +68,18 @@ class TuyaIRManager:
             await self._async_notify_missing_code(state, err)
             raise
 
+        swing_commands: list[tuple[str, str, str]] = []
+        if wants_power:
+            swing_commands = resolve_independent_swing_commands(
+                self._learned_codes,
+                state,
+                previous_vertical=self._last_swing_vertical,
+                previous_horizontal=self._last_swing_horizontal,
+            )
+
+        main_signature = self._main_state_signature(state, wants_power=wants_power)
+        main_unchanged = main_signature == self._last_main_state_signature
+
         if wants_power and self._last_known_power is not True:
             power_on = self._learned_codes.get("power_on")
             if power_on:
@@ -83,29 +96,37 @@ class TuyaIRManager:
                     state,
                 )
 
-        _LOGGER.debug("TuyaIRManager: sending state=%s via %s", state, self._remote_entity_id)
-        await self._async_send_raw_command(raw_command)
+        if main_unchanged and swing_commands:
+            _LOGGER.debug("TuyaIRManager: skipping main AC command for swing-only state=%s", state)
+        else:
+            _LOGGER.debug("TuyaIRManager: sending state=%s via %s", state, self._remote_entity_id)
+            await self._async_send_raw_command(raw_command)
 
-        if wants_power:
-            swing_commands = resolve_independent_swing_commands(
-                self._learned_codes,
-                state,
-                previous_vertical=self._last_swing_vertical,
-                previous_horizontal=self._last_swing_horizontal,
+        for axis, label, swing_command in swing_commands:
+            await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
+            _LOGGER.info(
+                "TuyaIRManager: sending independent %s swing command '%s' via %s",
+                axis,
+                label,
+                self._remote_entity_id,
             )
-            for axis, label, swing_command in swing_commands:
-                await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
-                _LOGGER.info(
-                    "TuyaIRManager: sending independent %s swing command '%s' via %s",
-                    axis,
-                    label,
-                    self._remote_entity_id,
-                )
-                await self._async_send_independent_command(label, swing_command)
+            await self._async_send_independent_command(label, swing_command)
 
         self._last_known_power = wants_power
+        self._last_main_state_signature = main_signature
         self._last_swing_vertical = self._normalize_swing_state(state.get("swing_vertical"))
         self._last_swing_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
+
+    @staticmethod
+    def _main_state_signature(state: dict[str, Any], *, wants_power: bool) -> tuple[object, ...]:
+        """Return the part of state represented by the full AC IR command."""
+        return (
+            wants_power,
+            str(state.get("hvac_mode", "off")).lower(),
+            state.get("target_temperature"),
+            state.get("fan_mode"),
+            state.get("preset_mode"),
+        )
 
     @staticmethod
     def _normalize_swing_state(value: object) -> str | None:

@@ -17,6 +17,7 @@ _SWING_MODE_ORDER = [
     "high",
     "upper_middle",
     "middle",
+    "lower_middle",
     "mid",
     "low",
     "lowest",
@@ -57,6 +58,8 @@ _SWING_LABEL_ALIASES: dict[str, dict[str, str]] = {
 _SWING_MODE_ALIASES: dict[str, dict[str, list[str]]] = {
     "vertical": {
         "middle": ["m", "mid", "center"],
+        "upper_middle": ["um", "upper_mid"],
+        "lower_middle": ["lm", "lower_mid"],
         "high": ["h", "hi"],
         "highest": ["top"],
         "low": ["l", "lo"],
@@ -313,6 +316,9 @@ def _swing_mode_from_label(label: str, axis: str) -> str | None:
         return "swing"
     if suffix == "toggle":
         return "swing"
+    embedded_modes = _embedded_swing_modes(axis, suffix)
+    if embedded_modes:
+        return embedded_modes[0]
     if suffix in _SWING_LABEL_ALIASES.get(axis, {}):
         return _SWING_LABEL_ALIASES[axis][suffix]
     return suffix
@@ -330,6 +336,18 @@ def _swing_label_candidates(axis: str, mode: str | None) -> list[str]:
     if not mode:
         return []
 
+    labels: list[str] = []
+    for embedded_mode in _embedded_swing_modes(axis, mode):
+        labels.extend(_swing_label_candidates_for_simple_mode(axis, embedded_mode))
+
+    labels.extend(_swing_label_candidates_for_simple_mode(axis, mode))
+
+    seen: set[str] = set()
+    return [label for label in labels if not (label in seen or seen.add(label))]
+
+
+def _swing_label_candidates_for_simple_mode(axis: str, mode: str) -> list[str]:
+    """Return learned command labels for one already-normalized swing mode."""
     labels = [
         f"{axis}_{mode}",
         f"swing_{axis}_{mode}",
@@ -377,8 +395,46 @@ def _swing_label_candidates(axis: str, mode: str | None) -> list[str]:
             ]
         )
 
+    return labels
+
+
+def _embedded_swing_modes(axis: str, mode: str) -> list[str]:
+    """
+    Extract real swing modes from localtuya-style combined enum strings.
+
+    Some learned/storage paths can surface a value like:
+        auto_vertical_top_vertical_upper_middle_..._vertical_swing_stop
+    That is not a command label; it is a concatenated list of possible states.
+    Treat it as candidates instead of exposing or resolving it literally.
+    """
+    normalized = _normalize_swing_mode(mode)
+    if not normalized:
+        return []
+
+    marker = f"_{axis}_"
+    if marker not in normalized and not normalized.startswith(f"{axis}_"):
+        return []
+
+    working = normalized
+    if working.startswith(f"{axis}_"):
+        working = working[len(axis) + 1 :]
+
+    parts = [part for part in working.split(marker) if part]
+    modes: list[str] = []
+    for part in parts:
+        if part == "auto":
+            modes.append("swing")
+            continue
+        if part == "swing_stop":
+            modes.extend(["swing", "off"])
+            continue
+        if part in _SWING_LABEL_ALIASES.get(axis, {}):
+            modes.append(_SWING_LABEL_ALIASES[axis][part])
+            continue
+        modes.append(part)
+
     seen: set[str] = set()
-    return [label for label in labels if not (label in seen or seen.add(label))]
+    return [mode for mode in modes if not (mode in seen or seen.add(mode))]
 
 
 def _nearest_temps(target: int, learned_codes: dict[str, str]) -> list[int]:

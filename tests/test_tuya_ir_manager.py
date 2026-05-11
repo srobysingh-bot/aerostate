@@ -565,6 +565,21 @@ def test_resolve_independent_swing_middle_uses_short_learned_label() -> None:
     ) == [("vertical", "vertical_m", "raw:vmid")]
 
 
+def test_resolve_independent_swing_combined_enum_uses_learned_candidate() -> None:
+    codes = {"vertical_m": "raw:vmid"}
+
+    assert resolve_independent_swing_commands(
+        codes,
+        {
+            "swing_vertical": (
+                "auto_vertical_top_vertical_upper_middle_vertical_middle_"
+                "vertical_lower_middle_vertical_bottom_vertical_swing_stop"
+            )
+        },
+        previous_vertical="off",
+    ) == [("vertical", "vertical_m", "raw:vmid")]
+
+
 def test_resolve_independent_swing_does_not_send_initial_default_stop() -> None:
     assert resolve_independent_swing_commands(
         {"horizontal_stop": "raw:hstop", "vertical_stop": "raw:vstop"},
@@ -594,6 +609,17 @@ def test_swing_modes_from_learned_codes_exposes_real_labels_only() -> None:
         "swing",
         "highest",
     ]
+
+
+def test_swing_modes_from_learned_codes_normalizes_combined_enum_labels() -> None:
+    codes = {
+        (
+            "vertical_auto_vertical_top_vertical_upper_middle_vertical_middle_"
+            "vertical_lower_middle_vertical_bottom_vertical_swing_stop"
+        ): "raw:vcombo",
+    }
+
+    assert swing_modes_from_learned_codes(codes, "vertical") == ["swing"]
 
 
 def test_find_localtuya_command_device_returns_exact_storage_device(tmp_path) -> None:
@@ -864,6 +890,48 @@ async def test_tuya_manager_prefers_localtuya_named_path_for_independent_swing(t
         },
     )
 
+    assert hass.services.async_call.await_args_list[1].args[2] == {
+        "entity_id": "remote.test_ir",
+        "device": "Living Ac IR",
+        "command": "vertical_m",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_skips_main_command_for_swing_only_change(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.SWING_COMMAND_GAP_SECONDS", 0)
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                "Living Ac IR": {
+                    "power_off": "raw:off",
+                    "temp_24": "raw:cool24",
+                    "vertical_m": "raw:vmid",
+                },
+            },
+        },
+    )
+    hass.services = SimpleNamespace(async_call=AsyncMock())
+    hass.states = SimpleNamespace(get=lambda _entity_id: MagicMock(state="on"))
+    manager = TuyaIRManager(hass, "remote.test_ir", "Living AC IR")
+
+    base_state = {
+        "power": True,
+        "hvac_mode": "cool",
+        "target_temperature": 24,
+        "fan_mode": "auto",
+    }
+    await manager.async_send_climate_state({**base_state, "swing_vertical": "off"})
+    await manager.async_send_climate_state({**base_state, "swing_vertical": "middle"})
+
+    assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        "raw:cool24",
+        "vertical_m",
+    ]
     assert hass.services.async_call.await_args_list[1].args[2] == {
         "entity_id": "remote.test_ir",
         "device": "Living Ac IR",
