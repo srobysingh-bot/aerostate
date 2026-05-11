@@ -28,6 +28,23 @@
         "description": "Raw-code source: **{device_name}**\nStatus: {code_source_status}\n\nLearned codes found: {total_codes}\n\nCool mode (auto fan): temps {cool_temps_auto}\nCool mode (specific fan): temps {cool_temps_fan}\nFan-only codes: {fan_codes}\nPower off: {has_power_off}\nHeat mode: {heat_supported}\nDry mode: {dry_supported}\n\nGaps: {gaps}\n\nClick Submit to create the entry.",
         "data": {}
       },
+      "tuya_cloud_device": {
+        "title": "Tuya Cloud Daikin Setup",
+        "description": "Configure Tuya's AC code-library route for a Daikin virtual remote.\n\n{setup_hint}",
+        "data": {
+          "tuya_cloud_endpoint": "Tuya OpenAPI endpoint",
+          "tuya_cloud_access_id": "Tuya Access ID",
+          "tuya_cloud_access_secret": "Tuya Access Secret",
+          "tuya_infrared_id": "Tuya IR device ID",
+          "tuya_remote_id": "Daikin AC remote ID",
+          "tuya_cloud_model_pack": "Tuya Cloud AC pack"
+        }
+      },
+      "tuya_cloud_confirm": {
+        "title": "Confirm Tuya Cloud Daikin Setup",
+        "description": "Endpoint: {endpoint}\nIR device: {infrared_id}\nAC remote: {remote_id}\nPack: {pack_id}\nModes: {modes}\nFan modes: {fan_modes}\nTemperature range: {temperature_range}\n\nThis route uses Tuya single AC commands and does not use learned raw codes.",
+        "data": {}
+      },
       "brand": {
         "title": "Select brand",
         "description": "Choose the AC brand.",
@@ -78,7 +95,8 @@
       "validation_failed": "Validation commands failed. Check logs for details.",
       "already_configured": "This controller and model pack are already configured.",
       "no_tuya_packs_available": "No Tuya IR packs are available. Add a Tuya pack to packs/tuya/ first.",
-      "tuya_pack_not_found": "Selected Tuya IR pack is not available."
+      "tuya_pack_not_found": "Selected Tuya IR pack is not available.",
+      "tuya_cloud_pack_not_found": "Selected Tuya Cloud AC pack is not available."
     },
     "error": {
       "validation_transport_unavailable": "Broadlink transport is unavailable.",
@@ -89,7 +107,10 @@
       "tuya_remote_entity_not_found": "Remote entity not found in Home Assistant.",
       "tuya_remote_entity_unavailable": "Remote entity is unavailable. Check IR blaster power.",
       "tuya_transport_unavailable": "Cannot reach Tuya IR blaster. Check the selected remote entity.",
-      "tuya_pack_not_found": "Selected Tuya IR pack could not be loaded. Check packs/tuya/ directory."
+      "tuya_pack_not_found": "Selected Tuya IR pack could not be loaded. Check packs/tuya/ directory.",
+      "tuya_cloud_endpoint_invalid": "Tuya OpenAPI endpoint must start with http:// or https://.",
+      "tuya_cloud_required_fields_missing": "All Tuya Cloud fields are required for the code-library route.",
+      "tuya_cloud_pack_not_found": "Selected Tuya Cloud AC pack could not be loaded."
     }
   },
   "options": {
@@ -108,7 +129,13 @@
           "ir_provider": "IR transport backend",
           "tuya_ir_entity": "Tuya IR Remote Entity",
           "tuya_device_name": "Raw-code source name",
-          "tuya_model_pack": "Tuya IR command pack"
+          "tuya_model_pack": "Tuya IR command pack",
+          "tuya_cloud_endpoint": "Tuya OpenAPI endpoint",
+          "tuya_cloud_access_id": "Tuya Access ID",
+          "tuya_cloud_access_secret": "Tuya Access Secret",
+          "tuya_infrared_id": "Tuya IR device ID",
+          "tuya_remote_id": "Daikin AC remote ID",
+          "tuya_cloud_model_pack": "Tuya Cloud AC pack"
         }
       }
     },

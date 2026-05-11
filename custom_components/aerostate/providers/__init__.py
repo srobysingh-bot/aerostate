@@ -5,6 +5,7 @@ from .ir_conversion import IRConversionLayer, IRConverter
 from .ir_exceptions import IRRoutingMisconfigured
 from .ir_manager import IRManager, create_ir_manager_explicit, create_ir_manager_from_entry
 from .ir_types import IRCommand
+from .tuya_cloud_ac import TuyaCloudACManager, TuyaCloudOpenAPI
 from .tuya_ir import TuyaIRProvider
 
 __all__ = [
@@ -15,6 +16,8 @@ __all__ = [
     "IRConverter",
     "IRManager",
     "IRRoutingMisconfigured",
+    "TuyaCloudACManager",
+    "TuyaCloudOpenAPI",
     "TuyaIRProvider",
     "create_ir_manager_explicit",
     "create_ir_manager_from_entry",

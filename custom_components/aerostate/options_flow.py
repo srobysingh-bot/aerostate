@@ -18,11 +18,21 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_CLOUD_ACCESS_ID,
+    CONF_TUYA_CLOUD_ACCESS_SECRET,
+    CONF_TUYA_CLOUD_ENDPOINT,
+    CONF_TUYA_CLOUD_MODEL_PACK,
     CONF_TUYA_DEVICE_NAME,
+    CONF_TUYA_INFRARED_ID,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
+    CONF_TUYA_REMOTE_ID,
     DEFAULT_IR_PROVIDER,
+    DEFAULT_TUYA_CLOUD_ENDPOINT,
     DEFAULT_TUYA_DEVICE_NAME,
+    IR_PROVIDER_BROADLINK,
+    IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 from .flow_helpers import (
     build_entry_title,
@@ -31,6 +41,7 @@ from .flow_helpers import (
 )
 from .packs.registry import get_registry
 from .packs.tuya.registry import get_tuya_pack_options_for_ui
+from .packs.tuya_cloud.registry import get_tuya_cloud_pack_options_for_ui
 
 
 class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
@@ -45,6 +56,7 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
         config_entry: config_entries.ConfigEntry,
         pack_options: list[selector.SelectOptionDict],
         tuya_pack_options: list[selector.SelectOptionDict],
+        tuya_cloud_pack_options: list[selector.SelectOptionDict],
     ) -> vol.Schema:
         """Build options form schema."""
         ir_default = config_entry.options.get(CONF_IR_PROVIDER, config_entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
@@ -54,10 +66,18 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             config_entry.data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
         )
         tuya_pack_default = config_entry.options.get(CONF_TUYA_MODEL_PACK, config_entry.data.get(CONF_TUYA_MODEL_PACK))
+        tuya_cloud_endpoint_default = config_entry.options.get(
+            CONF_TUYA_CLOUD_ENDPOINT,
+            config_entry.data.get(CONF_TUYA_CLOUD_ENDPOINT, DEFAULT_TUYA_CLOUD_ENDPOINT),
+        )
+        tuya_cloud_pack_default = config_entry.options.get(
+            CONF_TUYA_CLOUD_MODEL_PACK,
+            config_entry.data.get(CONF_TUYA_CLOUD_MODEL_PACK),
+        )
 
         return vol.Schema(
             {
-                vol.Required(
+                vol.Optional(
                     CONF_BROADLINK_ENTITY,
                     default=config_entry.data.get(CONF_BROADLINK_ENTITY),
                 ): selector.EntitySelector(selector.EntitySelectorConfig(domain="remote")),
@@ -72,7 +92,8 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(value="broadlink", label="Broadlink IR (default)"),
-                            selector.SelectOptionDict(value="tuya", label="Tuya IR remote.send_command"),
+                            selector.SelectOptionDict(value="tuya", label="Tuya IR learned/raw codes"),
+                            selector.SelectOptionDict(value="tuya_cloud", label="Tuya Cloud code library (Daikin)"),
                         ]
                     ),
                 ),
@@ -88,6 +109,42 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_TUYA_MODEL_PACK,
                     default=tuya_pack_default if tuya_pack_default else "",
                 ): selector.SelectSelector(selector.SelectSelectorConfig(options=tuya_pack_options)),
+                vol.Optional(
+                    CONF_TUYA_CLOUD_ENDPOINT,
+                    default=tuya_cloud_endpoint_default,
+                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)),
+                vol.Optional(
+                    CONF_TUYA_CLOUD_ACCESS_ID,
+                    default=config_entry.options.get(
+                        CONF_TUYA_CLOUD_ACCESS_ID,
+                        config_entry.data.get(CONF_TUYA_CLOUD_ACCESS_ID, ""),
+                    ),
+                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)),
+                vol.Optional(
+                    CONF_TUYA_CLOUD_ACCESS_SECRET,
+                    default=config_entry.options.get(
+                        CONF_TUYA_CLOUD_ACCESS_SECRET,
+                        config_entry.data.get(CONF_TUYA_CLOUD_ACCESS_SECRET, ""),
+                    ),
+                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+                vol.Optional(
+                    CONF_TUYA_INFRARED_ID,
+                    default=config_entry.options.get(
+                        CONF_TUYA_INFRARED_ID,
+                        config_entry.data.get(CONF_TUYA_INFRARED_ID, ""),
+                    ),
+                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)),
+                vol.Optional(
+                    CONF_TUYA_REMOTE_ID,
+                    default=config_entry.options.get(
+                        CONF_TUYA_REMOTE_ID,
+                        config_entry.data.get(CONF_TUYA_REMOTE_ID, ""),
+                    ),
+                ): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)),
+                vol.Optional(
+                    CONF_TUYA_CLOUD_MODEL_PACK,
+                    default=tuya_cloud_pack_default if tuya_cloud_pack_default else "",
+                ): selector.SelectSelector(selector.SelectSelectorConfig(options=tuya_cloud_pack_options)),
                 vol.Optional(
                     CONF_TEMP_SENSOR,
                     default=config_entry.options.get(CONF_TEMP_SENSOR),
@@ -152,7 +209,15 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                 selector.SelectOptionDict(value=str(option["value"]), label=str(option["label"])),
             )
 
-        schema = self._schema(self._config_entry, pack_options, tuya_pack_options)
+        tuya_cloud_pack_options: list[selector.SelectOptionDict] = [
+            selector.SelectOptionDict(value="", label="(none)"),
+        ]
+        for option in get_tuya_cloud_pack_options_for_ui():
+            tuya_cloud_pack_options.append(
+                selector.SelectOptionDict(value=str(option["value"]), label=str(option["label"])),
+            )
+
+        schema = self._schema(self._config_entry, pack_options, tuya_pack_options, tuya_cloud_pack_options)
 
         if user_input is not None:
             selected_remote = user_input.get(
@@ -164,9 +229,16 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                 self._config_entry.data.get(CONF_MODEL_PACK),
             )
             sel_ir = str(user_input.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER) or DEFAULT_IR_PROVIDER).strip().lower()
-            sel_ir = sel_ir if sel_ir in ("broadlink", "tuya") else DEFAULT_IR_PROVIDER
+            sel_ir = sel_ir if sel_ir in (IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD) else DEFAULT_IR_PROVIDER
 
-            if sel_ir != "tuya" and has_entry_collision(
+            if sel_ir == IR_PROVIDER_BROADLINK and not selected_remote:
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=schema,
+                    errors={"base": "broadlink_entity_required"},
+                )
+
+            if sel_ir == IR_PROVIDER_BROADLINK and has_entry_collision(
                 self.hass,
                 selected_remote,
                 selected_pack,
@@ -184,11 +256,11 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             if selected_remote:
                 new_data[CONF_BROADLINK_ENTITY] = selected_remote
 
-            if selected_pack and selected_pack != self._config_entry.data.get(CONF_MODEL_PACK):
+            if sel_ir == IR_PROVIDER_BROADLINK and selected_pack and selected_pack != self._config_entry.data.get(CONF_MODEL_PACK):
                 # Keep pack changes explicit by only updating when a new pack is selected.
                 new_data[CONF_MODEL_PACK] = selected_pack
 
-            if sel_ir == "tuya":
+            if sel_ir == IR_PROVIDER_TUYA:
                 from .packs.tuya.registry import get_tuya_pack
 
                 raw_tuya_pack = user_input.get(
@@ -205,6 +277,24 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                         step_id="init",
                         data_schema=schema,
                         errors={"base": "tuya_pack_not_found"},
+                    )
+            elif sel_ir == IR_PROVIDER_TUYA_CLOUD:
+                from .packs.tuya_cloud.registry import get_tuya_cloud_pack
+
+                raw_cloud_pack = user_input.get(
+                    CONF_TUYA_CLOUD_MODEL_PACK,
+                    self._config_entry.options.get(
+                        CONF_TUYA_CLOUD_MODEL_PACK,
+                        self._config_entry.data.get(CONF_TUYA_CLOUD_MODEL_PACK),
+                    ),
+                )
+                try:
+                    selected_pack_obj = get_tuya_cloud_pack(str(raw_cloud_pack))
+                except Exception:
+                    return self.async_show_form(
+                        step_id="init",
+                        data_schema=schema,
+                        errors={"base": "tuya_cloud_pack_not_found"},
                     )
             else:
                 try:
@@ -236,6 +326,20 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             else:
                 new_options.pop(CONF_TUYA_MODEL_PACK, None)
 
+            for cloud_key in (
+                CONF_TUYA_CLOUD_ENDPOINT,
+                CONF_TUYA_CLOUD_ACCESS_ID,
+                CONF_TUYA_CLOUD_ACCESS_SECRET,
+                CONF_TUYA_INFRARED_ID,
+                CONF_TUYA_REMOTE_ID,
+                CONF_TUYA_CLOUD_MODEL_PACK,
+            ):
+                value = user_input.get(cloud_key)
+                if isinstance(value, str) and value.strip():
+                    new_options[cloud_key] = value.strip()
+                else:
+                    new_options.pop(cloud_key, None)
+
             for sensor_key in (
                 CONF_TEMP_SENSOR,
                 CONF_HUM_SENSOR,
@@ -260,8 +364,34 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
             await self.hass.config_entries.async_reload(self._config_entry.entry_id)
             return self.async_create_entry(title="", data={})
 
+        current_provider = str(
+            self._config_entry.options.get(
+                CONF_IR_PROVIDER,
+                self._config_entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER),
+            )
+            or DEFAULT_IR_PROVIDER
+        ).strip().lower()
         try:
-            current_pack = registry.get(self._config_entry.data.get(CONF_MODEL_PACK))
+            if current_provider == IR_PROVIDER_TUYA_CLOUD:
+                from .packs.tuya_cloud.registry import get_tuya_cloud_pack
+
+                current_pack = get_tuya_cloud_pack(
+                    self._config_entry.options.get(
+                        CONF_TUYA_CLOUD_MODEL_PACK,
+                        self._config_entry.data.get(CONF_TUYA_CLOUD_MODEL_PACK),
+                    )
+                )
+            elif current_provider == IR_PROVIDER_TUYA:
+                from .packs.tuya.registry import get_tuya_pack
+
+                current_pack = get_tuya_pack(
+                    self._config_entry.options.get(
+                        CONF_TUYA_MODEL_PACK,
+                        self._config_entry.data.get(CONF_TUYA_MODEL_PACK),
+                    )
+                ).to_model_pack()
+            else:
+                current_pack = registry.get(self._config_entry.data.get(CONF_MODEL_PACK))
         except Exception:
             return self.async_show_form(
                 step_id="init",

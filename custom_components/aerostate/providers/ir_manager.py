@@ -17,6 +17,7 @@ from ..const import (
     CONF_TUYA_MODEL_PACK,
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 from ..engines import StateEngine, create_engine
 from .broadlink import BroadlinkIRProvider, BroadlinkProvider
@@ -25,10 +26,9 @@ from .ir_exceptions import IRRoutingMisconfigured
 from .ir_types import IRCommand
 from .tuya_ir import TuyaIRProvider
 
-
 _LOGGER = logging.getLogger(__name__)
 
-BackendDisplay = Literal["broadlink", "tuya", "misconfigured"]
+BackendDisplay = Literal["broadlink", "tuya", "tuya_cloud", "misconfigured"]
 
 
 def _normalize_ir_provider_key(raw: str | None, *, explicit: bool, device_id: str) -> str:
@@ -42,7 +42,7 @@ def _normalize_ir_provider_key(raw: str | None, *, explicit: bool, device_id: st
             )
         return IR_PROVIDER_BROADLINK
     key = raw.strip().lower()
-    if key not in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA}:
+    if key not in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}:
         _LOGGER.warning(
             "AeroState entry %s: invalid ir_provider %r; using %s",
             device_id,
@@ -102,7 +102,7 @@ class IRManager:
         self._invalid_tuya_reason: str | None = (
             invalid_tuya_reason if normalized_provider_key == IR_PROVIDER_TUYA else None
         )
-        self._tuya_ir_no_ack_mode = normalized_provider_key == IR_PROVIDER_TUYA and bool(tuya_ir_no_ack_mode)
+        self._tuya_ir_no_ack_mode = normalized_provider_key in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD} and bool(tuya_ir_no_ack_mode)
 
         conversion_layer = ir_conversion_layer if ir_conversion_enabled else None
 
@@ -114,6 +114,7 @@ class IRManager:
             and tuya_sender is not None
             and (tuya_engine is not None or self._conversion_layer is not None)
         )
+        self._tuya_cloud_can_send = normalized_provider_key == IR_PROVIDER_TUYA_CLOUD
 
         self._broadlink_impl = broadlink_impl
         self._broadlink_ir = broadlink_ir
@@ -139,9 +140,15 @@ class IRManager:
     @property
     def active_transport(self) -> str:
         """Backend this device is pinned to (intent; may be tuya while still misconfigured)."""
-        return IR_PROVIDER_BROADLINK if self._normalized_provider_key != IR_PROVIDER_TUYA else IR_PROVIDER_TUYA
+        if self._normalized_provider_key == IR_PROVIDER_TUYA:
+            return IR_PROVIDER_TUYA
+        if self._normalized_provider_key == IR_PROVIDER_TUYA_CLOUD:
+            return IR_PROVIDER_TUYA_CLOUD
+        return IR_PROVIDER_BROADLINK
 
     def effective_ir_mode(self) -> BackendDisplay:
+        if self._normalized_provider_key == IR_PROVIDER_TUYA_CLOUD:
+            return IR_PROVIDER_TUYA_CLOUD if self._tuya_cloud_can_send else "misconfigured"
         if self._normalized_provider_key != IR_PROVIDER_TUYA:
             return IR_PROVIDER_BROADLINK
         return IR_PROVIDER_TUYA if self._tuya_can_send else "misconfigured"
@@ -164,6 +171,11 @@ class IRManager:
         }
 
     def resolve_to_ir_commands(self, state_dict: dict[str, Any]) -> tuple[list[IRCommand], str]:
+        if self._normalized_provider_key == IR_PROVIDER_TUYA_CLOUD:
+            raise IRRoutingMisconfigured(
+                f"[{self._device_id}] Tuya Cloud AC commands are sent through the code-library manager",
+            )
+
         if self._normalized_provider_key == IR_PROVIDER_TUYA:
             if not self._tuya_can_send or self._tuya_sender is None:
                 reason = (
@@ -337,6 +349,8 @@ class IRManager:
         """Health-check only for the backend selected by ir_provider (never the other backend)."""
         if self.active_transport == IR_PROVIDER_BROADLINK:
             return await self._broadlink_impl.test_connection()
+        if self.active_transport == IR_PROVIDER_TUYA_CLOUD:
+            return True
         if not self._tuya_can_send or self._tuya_sender is None:
             _LOGGER.warning(
                 "[%s] active transport is Tuya but hardware/service is unavailable for probe",
@@ -438,7 +452,7 @@ def create_ir_manager_from_entry(
         tuya_sender=tuya_sender,
         ir_conversion_enabled=ir_conversion_enabled,
         ir_conversion_layer=conversion_layer,
-        tuya_ir_no_ack_mode=normalized == IR_PROVIDER_TUYA,
+        tuya_ir_no_ack_mode=normalized in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD},
     )
 
 
@@ -481,7 +495,7 @@ def create_ir_manager_explicit(
     return IRManager(
         device_id=device_id,
         lg_engine=lg_engine,
-        normalized_provider_key=nk if nk in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA} else IR_PROVIDER_BROADLINK,
+        normalized_provider_key=nk if nk in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD} else IR_PROVIDER_BROADLINK,
         invalid_tuya_reason=None,
         broadlink_impl=broadlink_impl,
         broadlink_ir=broadlink_ir,

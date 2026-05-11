@@ -15,12 +15,19 @@ pytest.importorskip("homeassistant")
 from custom_components.aerostate.config_flow import AeroStateConfigFlow
 from custom_components.aerostate.const import (
     CONF_IR_PROVIDER,
+    CONF_TUYA_CLOUD_ACCESS_ID,
+    CONF_TUYA_CLOUD_ACCESS_SECRET,
+    CONF_TUYA_CLOUD_ENDPOINT,
+    CONF_TUYA_CLOUD_MODEL_PACK,
     CONF_TUYA_DEVICE_NAME,
+    CONF_TUYA_INFRARED_ID,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
+    CONF_TUYA_REMOTE_ID,
     DEFAULT_TUYA_DEVICE_NAME,
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 from custom_components.aerostate.providers import tuya_raw_code_library
 
@@ -135,6 +142,25 @@ async def test_tuya_config_flow_tuya_path_shows_tuya_device_step() -> None:
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_device"
     assert CONF_TUYA_IR_ENTITY in _schema_keys(result["data_schema"])
+
+
+@pytest.mark.asyncio
+async def test_tuya_config_flow_tuya_cloud_path_shows_cloud_device_step() -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass()
+
+    result = await flow.async_step_user({CONF_IR_PROVIDER: IR_PROVIDER_TUYA_CLOUD})
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tuya_cloud_device"
+    assert {
+        CONF_TUYA_CLOUD_ENDPOINT,
+        CONF_TUYA_CLOUD_ACCESS_ID,
+        CONF_TUYA_CLOUD_ACCESS_SECRET,
+        CONF_TUYA_INFRARED_ID,
+        CONF_TUYA_REMOTE_ID,
+        CONF_TUYA_CLOUD_MODEL_PACK,
+    }.issubset(_schema_keys(result["data_schema"]))
 
 
 def test_tuya_device_step_has_human_readable_labels() -> None:
@@ -307,4 +333,28 @@ async def test_tuya_confirm_creates_entry(tmp_path) -> None:
     assert result["data"][CONF_TUYA_IR_ENTITY] == "remote.test_ir"
     assert result["data"][CONF_TUYA_DEVICE_NAME] == DEFAULT_TUYA_DEVICE_NAME
     assert result["data"][CONF_TUYA_MODEL_PACK] == "tuya.lg_pc09sq_nsj.v1"
+    assert "broadlink_entity" not in result["data"]
+
+
+@pytest.mark.asyncio
+async def test_tuya_cloud_confirm_creates_isolated_cloud_entry(tmp_path) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+    flow.async_set_unique_id = AsyncMock()
+    flow._abort_if_unique_id_configured = lambda: None
+    flow._tuya_cloud_data = {
+        CONF_TUYA_CLOUD_ENDPOINT: "https://openapi.tuyain.com",
+        CONF_TUYA_CLOUD_ACCESS_ID: "access-id",
+        CONF_TUYA_CLOUD_ACCESS_SECRET: "access-secret",
+        CONF_TUYA_INFRARED_ID: "ir-device-id",
+        CONF_TUYA_REMOTE_ID: "remote-id",
+        CONF_TUYA_CLOUD_MODEL_PACK: "tuya_cloud.daikin_ac.v1",
+    }
+
+    result = await flow.async_step_tuya_cloud_confirm({})
+
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_IR_PROVIDER] == IR_PROVIDER_TUYA_CLOUD
+    assert result["data"][CONF_TUYA_REMOTE_ID] == "remote-id"
+    assert CONF_TUYA_MODEL_PACK not in result["data"]
     assert "broadlink_entity" not in result["data"]

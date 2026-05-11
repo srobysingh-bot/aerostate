@@ -45,6 +45,10 @@ Release: v1.0.0
 4. Run onboarding validation.
 5. Add the created climate entity to a dashboard thermostat card.
 
+For Daikin ACs using a Tuya IR blaster, use the separate Tuya Cloud code-library
+route in `docs/TUYA_DAIKIN_CODE_LIBRARY_SETUP.md`. That path is isolated from
+Broadlink/LG and Tuya/LG learned-code control.
+
 ## Troubleshooting
 
 ### Remote unavailable
@@ -90,5 +94,6 @@ data:
 ## Links
 
 - Pack authoring guide: PACK_AUTHORING_GUIDE.md
+- Tuya Daikin code-library setup: docs/TUYA_DAIKIN_CODE_LIBRARY_SETUP.md
 - Changelog: CHANGELOG.md
 - Release notes: RELEASE_NOTES.md

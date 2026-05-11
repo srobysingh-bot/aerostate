@@ -9,10 +9,15 @@ from homeassistant.helpers import issue_registry as ir
 from .const import (
     CONF_BROADLINK_ENTITY,
     CONF_HUM_SENSOR,
+    CONF_IR_PROVIDER,
     CONF_MODEL_PACK,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_CLOUD_MODEL_PACK,
+    DEFAULT_IR_PROVIDER,
     DOMAIN,
+    IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 from .packs.coverage import get_pack_coverage_report
 from .packs.registry import get_registry
@@ -77,16 +82,32 @@ def async_report_tuya_pack_missing(hass: HomeAssistant, entry: ConfigEntry) -> N
 
 def async_validate_entry_runtime(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Create/delete repair issues based on current config/runtime state."""
+    ir_provider = str(
+        entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
+        or DEFAULT_IR_PROVIDER
+    ).strip().lower()
     broadlink_entity = entry.options.get(CONF_BROADLINK_ENTITY, entry.data.get(CONF_BROADLINK_ENTITY))
     pack_id = entry.options.get(CONF_MODEL_PACK, entry.data.get(CONF_MODEL_PACK))
 
-    if not broadlink_entity or hass.states.get(broadlink_entity) is None:
+    if ir_provider in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}:
+        _delete_issue(hass, entry, "missing_remote")
+    elif not broadlink_entity or hass.states.get(broadlink_entity) is None:
         _create_issue(hass, entry, "missing_remote", "missing_remote")
     else:
         _delete_issue(hass, entry, "missing_remote")
 
     try:
-        pack = get_registry().get(pack_id)
+        if ir_provider == IR_PROVIDER_TUYA_CLOUD:
+            from .packs.tuya_cloud.registry import get_tuya_cloud_pack
+
+            pack = get_tuya_cloud_pack(
+                entry.options.get(
+                    CONF_TUYA_CLOUD_MODEL_PACK,
+                    entry.data.get(CONF_TUYA_CLOUD_MODEL_PACK),
+                )
+            )
+        else:
+            pack = get_registry().get(pack_id)
         if not pack.capabilities.hvac_modes:
             _create_issue(hass, entry, "invalid_pack", "invalid_pack")
         else:
@@ -98,7 +119,7 @@ def async_validate_entry_runtime(hass: HomeAssistant, entry: ConfigEntry) -> Non
             _delete_issue(hass, entry, "experimental_pack")
 
         coverage = get_pack_coverage_report(pack)
-        transport_available = bool(
+        transport_available = True if ir_provider == IR_PROVIDER_TUYA_CLOUD else bool(
             broadlink_entity
             and hass.states.get(broadlink_entity)
             and hass.states.get(broadlink_entity).state not in ("unknown", "unavailable")

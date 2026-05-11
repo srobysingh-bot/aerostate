@@ -17,13 +17,20 @@ from .const import (
     CONF_MODEL_PACK,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_CLOUD_ACCESS_ID,
+    CONF_TUYA_CLOUD_ACCESS_SECRET,
+    CONF_TUYA_CLOUD_ENDPOINT,
+    CONF_TUYA_CLOUD_MODEL_PACK,
     CONF_TUYA_DEVICE_NAME,
+    CONF_TUYA_INFRARED_ID,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
+    CONF_TUYA_REMOTE_ID,
     DEFAULT_IR_PROVIDER,
     DEFAULT_TUYA_DEVICE_NAME,
     DOMAIN,
     IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 from .engines import create_engine
 from .flow_helpers import describe_pack_limitations
@@ -33,7 +40,7 @@ from .packs.truth import build_mode_truth
 from .providers.ir_manager import create_ir_manager_from_entry
 from .validation import build_safe_validation_states
 
-TO_REDACT: set[str] = set()
+TO_REDACT: set[str] = {CONF_TUYA_CLOUD_ACCESS_ID, CONF_TUYA_CLOUD_ACCESS_SECRET}
 
 
 def _without_secrets(values: dict[str, Any]) -> dict[str, Any]:
@@ -46,12 +53,25 @@ async def async_get_config_entry_diagnostics(
     entry: ConfigEntry,
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
+    configured_ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
     registry = get_registry()
     pack_id = entry.options.get(CONF_MODEL_PACK, entry.data.get(CONF_MODEL_PACK))
-    try:
-        pack = registry.get(pack_id)
-    except Exception:
-        pack = None
+    if str(configured_ir_provider or DEFAULT_IR_PROVIDER).strip().lower() == IR_PROVIDER_TUYA_CLOUD:
+        pack_id = entry.options.get(
+            CONF_TUYA_CLOUD_MODEL_PACK,
+            entry.data.get(CONF_TUYA_CLOUD_MODEL_PACK),
+        )
+        try:
+            from .packs.tuya_cloud.registry import get_tuya_cloud_pack
+
+            pack = get_tuya_cloud_pack(pack_id)
+        except Exception:
+            pack = None
+    else:
+        try:
+            pack = registry.get(pack_id)
+        except Exception:
+            pack = None
 
     unique_id = f"{entry.entry_id}_climate"
     entity_registry = er.async_get(hass)
@@ -72,8 +92,6 @@ async def async_get_config_entry_diagnostics(
     validation_states_ready = False
     ir_transport_effective = None
     ir_tuya_route: dict[str, Any] = {}
-
-    configured_ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
 
     cfg_ir_conversion = entry.options.get(CONF_IR_CONVERSION_ENABLED, entry.data.get(CONF_IR_CONVERSION_ENABLED, False))
     if isinstance(cfg_ir_conversion, str):
@@ -186,7 +204,33 @@ async def async_get_config_entry_diagnostics(
         "runtime_data_keys": list(hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).keys()),
     }
 
-    if str(configured_ir_provider or DEFAULT_IR_PROVIDER).strip().lower() == IR_PROVIDER_TUYA:
+    normalized_provider = str(configured_ir_provider or DEFAULT_IR_PROVIDER).strip().lower()
+    if normalized_provider == IR_PROVIDER_TUYA_CLOUD:
+        try:
+            from .providers.tuya_cloud_ac import create_tuya_cloud_ac_manager_from_entry
+
+            manager = create_tuya_cloud_ac_manager_from_entry(hass, entry)
+            payload["tuya_cloud_ir"] = {
+                "provider": IR_PROVIDER_TUYA_CLOUD,
+                "transport": "tuya_cloud_ac_code_library",
+                "endpoint": entry.options.get(
+                    CONF_TUYA_CLOUD_ENDPOINT,
+                    entry.data.get(CONF_TUYA_CLOUD_ENDPOINT),
+                ),
+                "infrared_id": entry.options.get(
+                    CONF_TUYA_INFRARED_ID,
+                    entry.data.get(CONF_TUYA_INFRARED_ID),
+                ),
+                "remote_id": entry.options.get(
+                    CONF_TUYA_REMOTE_ID,
+                    entry.data.get(CONF_TUYA_REMOTE_ID),
+                ),
+                "model_pack": manager.describe(),
+            }
+        except Exception as err:
+            payload["tuya_cloud_ir"] = {"error": str(err)}
+
+    if normalized_provider == IR_PROVIDER_TUYA:
         try:
             from .packs.tuya.registry import get_tuya_pack
             from .providers.learned_code_resolver import get_coverage_summary

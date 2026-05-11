@@ -9,12 +9,14 @@ from .const import (
     CONF_BROADLINK_ENTITY,
     CONF_IR_PROVIDER,
     CONF_MODEL_PACK,
+    CONF_TUYA_CLOUD_MODEL_PACK,
     CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
     DEFAULT_IR_PROVIDER,
     DEFAULT_TUYA_DEVICE_NAME,
     DOMAIN,
     IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 
 try:
@@ -159,14 +161,25 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
 
         ir_provider = entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
         ir_provider = str(ir_provider or DEFAULT_IR_PROVIDER).strip().lower()
-        if ir_provider == IR_PROVIDER_TUYA:
-            from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
+        if ir_provider in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}:
+            if ir_provider == IR_PROVIDER_TUYA_CLOUD:
+                from .providers.tuya_cloud_ac import create_tuya_cloud_ac_manager_from_entry
 
-            device_name = entry.options.get(
-                CONF_TUYA_DEVICE_NAME,
-                entry.data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
-            )
-            tuya_manager = create_tuya_ir_manager_from_entry(hass, entry)
+                device_name = entry.options.get(
+                    CONF_TUYA_CLOUD_MODEL_PACK,
+                    entry.data.get(CONF_TUYA_CLOUD_MODEL_PACK, "tuya_cloud.daikin_ac.v1"),
+                )
+                tuya_manager = create_tuya_cloud_ac_manager_from_entry(hass, entry)
+                transport_name = "tuya_cloud_ac_code_library"
+            else:
+                from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
+
+                device_name = entry.options.get(
+                    CONF_TUYA_DEVICE_NAME,
+                    entry.data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
+                )
+                tuya_manager = create_tuya_ir_manager_from_entry(hass, entry)
+                transport_name = "tuya_ir_learned_codes"
             if not await tuya_manager.probe_transport():
                 hass.bus.async_fire(
                     EVENT_SELF_TEST_RESULT,
@@ -189,7 +202,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                         "success": False,
                         "entry_id": entry_id,
                         "profile": profile,
-                        "transport": "tuya_ir_learned_codes",
+                        "transport": transport_name,
                         "error": str(err),
                     },
                 )
@@ -204,7 +217,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                     "profile": profile,
                     "attempted": ["off"],
                     "errors": [],
-                    "ir_transport_effective": "tuya_ir_learned_codes",
+                    "ir_transport_effective": transport_name,
                 }
             hass.bus.async_fire(
                 EVENT_SELF_TEST_RESULT,
@@ -215,7 +228,7 @@ async def _async_handle_run_self_test(hass: HomeAssistant, call: ServiceCall) ->
                     "profile": profile,
                     "attempted": ["off"],
                     "errors": [],
-                    "transport": "tuya_ir_learned_codes",
+                    "transport": transport_name,
                 },
             )
             return

@@ -20,14 +20,22 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_CLOUD_ACCESS_ID,
+    CONF_TUYA_CLOUD_ACCESS_SECRET,
+    CONF_TUYA_CLOUD_ENDPOINT,
+    CONF_TUYA_CLOUD_MODEL_PACK,
     CONF_TUYA_DEVICE_NAME,
+    CONF_TUYA_INFRARED_ID,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
+    CONF_TUYA_REMOTE_ID,
     DEFAULT_IR_PROVIDER,
+    DEFAULT_TUYA_CLOUD_ENDPOINT,
     DEFAULT_TUYA_DEVICE_NAME,
     DOMAIN,
     IR_PROVIDER_BROADLINK,
     IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 from .engines import create_engine
 from .flow_helpers import (
@@ -60,6 +68,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._broadlink_entity: str | None = None
         self._sensor_data: dict[str, Any] = {}
         self._tuya_data: dict[str, Any] = {}
+        self._tuya_cloud_data: dict[str, Any] = {}
         self._tuya_setup_warning: str = ""
         self._validation_summary: dict[str, Any] = {
             "status": "not_run",
@@ -77,10 +86,12 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Step 1: choose IR provider and branch to the provider-specific path."""
         if user_input is not None:
             provider = str(user_input.get(CONF_IR_PROVIDER, IR_PROVIDER_BROADLINK)).strip().lower()
-            self._ir_provider = provider if provider in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA} else IR_PROVIDER_BROADLINK
+            self._ir_provider = provider if provider in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD} else IR_PROVIDER_BROADLINK
             self._selected_ir_provider = self._ir_provider
             if self._ir_provider == IR_PROVIDER_TUYA:
                 return await self.async_step_tuya_device()
+            if self._ir_provider == IR_PROVIDER_TUYA_CLOUD:
+                return await self.async_step_tuya_cloud_device()
             return await self.async_step_broadlink_remote()
 
         return self.async_show_form(
@@ -100,12 +111,122 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(value=IR_PROVIDER_BROADLINK, label="Broadlink IR (default)"),
-                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR (remote.send_command b64)"),
+                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR learned/raw codes"),
+                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA_CLOUD, label="Tuya Cloud code library (Daikin)"),
                         ],
                         mode="list",
                     ),
                 ),
             }
+        )
+
+    async def async_step_tuya_cloud_device(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.FlowResult:
+        """Collect Tuya Cloud code-library details for Daikin AC control."""
+        from .packs.tuya_cloud.registry import get_tuya_cloud_pack_options_for_ui
+
+        errors: dict[str, str] = {}
+        pack_options = get_tuya_cloud_pack_options_for_ui()
+        default_pack = pack_options[0]["value"] if pack_options else ""
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_TUYA_CLOUD_ENDPOINT, default=DEFAULT_TUYA_CLOUD_ENDPOINT): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                ),
+                vol.Required(CONF_TUYA_CLOUD_ACCESS_ID): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                ),
+                vol.Required(CONF_TUYA_CLOUD_ACCESS_SECRET): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD),
+                ),
+                vol.Required(CONF_TUYA_INFRARED_ID): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                ),
+                vol.Required(CONF_TUYA_REMOTE_ID): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                ),
+                vol.Required(CONF_TUYA_CLOUD_MODEL_PACK, default=default_pack): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=pack_options),
+                ),
+            }
+        )
+
+        if user_input is not None:
+            cleaned = {
+                key: str(user_input.get(key, "")).strip()
+                for key in (
+                    CONF_TUYA_CLOUD_ENDPOINT,
+                    CONF_TUYA_CLOUD_ACCESS_ID,
+                    CONF_TUYA_CLOUD_ACCESS_SECRET,
+                    CONF_TUYA_INFRARED_ID,
+                    CONF_TUYA_REMOTE_ID,
+                    CONF_TUYA_CLOUD_MODEL_PACK,
+                )
+            }
+            if not cleaned[CONF_TUYA_CLOUD_ENDPOINT].startswith(("http://", "https://")):
+                errors["base"] = "tuya_cloud_endpoint_invalid"
+            elif not all(cleaned.values()):
+                errors["base"] = "tuya_cloud_required_fields_missing"
+            else:
+                self._tuya_cloud_data = cleaned
+                self._selected_ir_provider = IR_PROVIDER_TUYA_CLOUD
+                return await self.async_step_tuya_cloud_confirm()
+
+        return self.async_show_form(
+            step_id="tuya_cloud_device",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "setup_hint": (
+                    "Create or select the Daikin virtual remote in Tuya first, then paste "
+                    "the Tuya OpenAPI endpoint, Access ID, Access Secret, infrared_id, "
+                    "and AC remote_id here. This route does not use learned raw codes."
+                ),
+            },
+        )
+
+    async def async_step_tuya_cloud_confirm(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.FlowResult:
+        """Confirm Tuya Cloud code-library setup and create the entry."""
+        from .packs.tuya_cloud.registry import get_tuya_cloud_pack
+
+        pack_id = self._tuya_cloud_data.get(CONF_TUYA_CLOUD_MODEL_PACK)
+        try:
+            pack = get_tuya_cloud_pack(pack_id)
+        except KeyError:
+            return self.async_abort(reason="tuya_cloud_pack_not_found")
+
+        if user_input is not None:
+            infrared_id = str(self._tuya_cloud_data.get(CONF_TUYA_INFRARED_ID, ""))
+            remote_id = str(self._tuya_cloud_data.get(CONF_TUYA_REMOTE_ID, ""))
+            unique_id = f"tuya_cloud::{infrared_id}::{remote_id}"
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=f"AeroState Tuya Cloud - {pack.brand}",
+                data={
+                    **self._tuya_cloud_data,
+                    CONF_IR_PROVIDER: IR_PROVIDER_TUYA_CLOUD,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="tuya_cloud_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "endpoint": self._tuya_cloud_data.get(CONF_TUYA_CLOUD_ENDPOINT, ""),
+                "infrared_id": self._tuya_cloud_data.get(CONF_TUYA_INFRARED_ID, ""),
+                "remote_id": self._tuya_cloud_data.get(CONF_TUYA_REMOTE_ID, ""),
+                "pack_id": pack.pack_id,
+                "modes": ", ".join(pack.capabilities.hvac_modes),
+                "fan_modes": ", ".join(pack.capabilities.fan_modes),
+                "temperature_range": f"{pack.min_temperature}-{pack.max_temperature}",
+            },
         )
 
     async def async_step_broadlink_remote(

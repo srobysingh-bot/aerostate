@@ -7,10 +7,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
+    PRESET_NONE,
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
-    PRESET_NONE,
 )
 from homeassistant.const import (
     ATTR_TEMPERATURE,
@@ -28,14 +28,16 @@ from .const import (
     CONF_NAME,
     CONF_POWER_SENSOR,
     CONF_TEMP_SENSOR,
+    CONF_TUYA_CLOUD_MODEL_PACK,
     CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
-    DEFAULT_TUYA_DEVICE_NAME,
     DEFAULT_IR_PROVIDER,
     DEFAULT_NAME,
+    DEFAULT_TUYA_DEVICE_NAME,
     DOMAIN,
     IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 from .engines import StateEngine, create_engine
 from .providers.ir_manager import IRManager, create_ir_manager_from_entry
@@ -197,9 +199,14 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
     def _get_tuya_ir_manager(self) -> Any:
         """Return the cached standalone Tuya manager for this entity."""
         if self._tuya_ir_manager is None:
-            from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
+            if self._configured_ir_provider() == IR_PROVIDER_TUYA_CLOUD:
+                from .providers.tuya_cloud_ac import create_tuya_cloud_ac_manager_from_entry
 
-            self._tuya_ir_manager = create_tuya_ir_manager_from_entry(self._hass, self._entry)
+                self._tuya_ir_manager = create_tuya_cloud_ac_manager_from_entry(self._hass, self._entry)
+            else:
+                from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
+
+                self._tuya_ir_manager = create_tuya_ir_manager_from_entry(self._hass, self._entry)
         return self._tuya_ir_manager
 
     def _collect_temperatures_recursive(self, node: Any, out: set[int]) -> None:
@@ -773,7 +780,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 return
 
             _LOGGER.debug("Applying state: %s", state_dict)
-            if self._configured_ir_provider() == IR_PROVIDER_TUYA:
+            if self._configured_ir_provider() in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}:
                 tuya_manager = self._get_tuya_ir_manager()
                 await tuya_manager.async_send_climate_state(state_dict)
                 self._last_sent_state = dict(state_dict)
@@ -783,7 +790,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 self.async_write_ha_state()
                 _LOGGER.info(
                     "AC command sent [%s] mode=%s temp=%s",
-                    IR_PROVIDER_TUYA,
+                    self._configured_ir_provider(),
                     self._attr_hvac_mode,
                     self._attr_target_temperature,
                 )
@@ -819,15 +826,22 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 err,
                 state_dict,
             )
-            if self._configured_ir_provider() == IR_PROVIDER_TUYA:
-                _LOGGER.warning(
-                    "Tuya IR send did not succeed (MCU often does not report IR echo). desired=%s last_sent=%s",
-                    state_dict,
-                    self._last_sent_state,
-                )
+            if self._configured_ir_provider() in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}:
+                if self._configured_ir_provider() == IR_PROVIDER_TUYA:
+                    _LOGGER.warning(
+                        "Tuya IR send did not succeed (MCU often does not report IR echo). desired=%s last_sent=%s",
+                        state_dict,
+                        self._last_sent_state,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Tuya Cloud code-library send failed. desired=%s last_sent=%s",
+                        state_dict,
+                        self._last_sent_state,
+                    )
                 from .providers.learned_code_resolver import LearnedCodeNotAvailable
 
-                if not isinstance(err, LearnedCodeNotAvailable):
+                if self._configured_ir_provider() == IR_PROVIDER_TUYA and not isinstance(err, LearnedCodeNotAvailable):
                     # For Tuya IR, transport errors are often "no ACK" after a
                     # service send was attempted. Preserve the requested state
                     # instead of snapping the UI back to Off; missing-code
@@ -873,7 +887,21 @@ async def async_setup_entry(
         brand = entry.data.get(CONF_BRAND)
         model_pack_id = entry.options.get(CONF_MODEL_PACK, entry.data.get(CONF_MODEL_PACK))
 
-        if ir_provider == IR_PROVIDER_TUYA:
+        if ir_provider == IR_PROVIDER_TUYA_CLOUD:
+            from .packs.tuya_cloud.registry import get_tuya_cloud_pack
+
+            tuya_cloud_pack_id = entry.options.get(
+                CONF_TUYA_CLOUD_MODEL_PACK,
+                entry.data.get(CONF_TUYA_CLOUD_MODEL_PACK),
+            )
+            try:
+                pack = get_tuya_cloud_pack(tuya_cloud_pack_id)
+            except KeyError:
+                _LOGGER.error("Tuya Cloud pack '%s' not found in registry.", tuya_cloud_pack_id)
+                return False
+            model_pack_id = pack.pack_id
+            brand = pack.brand
+        elif ir_provider == IR_PROVIDER_TUYA:
             from .packs.tuya.registry import get_tuya_pack
 
             tuya_remote_entity = entry.options.get(CONF_TUYA_IR_ENTITY, entry.data.get(CONF_TUYA_IR_ENTITY))
@@ -937,7 +965,11 @@ async def async_setup_entry(
         engine = create_engine(pack)
         ir_manager = create_ir_manager_from_entry(hass, entry, lg_engine=engine, registry=registry)
 
-        if ir_provider == IR_PROVIDER_TUYA:
+        if ir_provider == IR_PROVIDER_TUYA_CLOUD:
+            from .providers.tuya_cloud_ac import create_tuya_cloud_ac_manager_from_entry
+
+            is_connected = await create_tuya_cloud_ac_manager_from_entry(hass, entry).probe_transport()
+        elif ir_provider == IR_PROVIDER_TUYA:
             from .providers.tuya_ir_manager import create_tuya_ir_manager_from_entry
 
             is_connected = await create_tuya_ir_manager_from_entry(hass, entry).probe_transport()
@@ -945,7 +977,11 @@ async def async_setup_entry(
             is_connected = await ir_manager.probe_active_transport()
         if not is_connected:
             eff = ir_manager.effective_ir_mode()
-            if ir_provider == IR_PROVIDER_TUYA:
+            if ir_provider == IR_PROVIDER_TUYA_CLOUD:
+                _LOGGER.warning(
+                    "Tuya Cloud code-library transport is not available. Climate entity will be created but may not send commands.",
+                )
+            elif ir_provider == IR_PROVIDER_TUYA:
                 _LOGGER.warning(
                     "Tuya IR transport is not available. Climate entity will be created but may not send commands.",
                 )

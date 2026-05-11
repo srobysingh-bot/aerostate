@@ -9,9 +9,16 @@ import pytest
 import custom_components.aerostate as integration
 from custom_components.aerostate.const import (
     CONF_IR_PROVIDER,
+    CONF_TUYA_CLOUD_ACCESS_ID,
+    CONF_TUYA_CLOUD_ACCESS_SECRET,
+    CONF_TUYA_CLOUD_ENDPOINT,
+    CONF_TUYA_CLOUD_MODEL_PACK,
+    CONF_TUYA_INFRARED_ID,
     CONF_TUYA_IR_ENTITY,
     CONF_TUYA_MODEL_PACK,
+    CONF_TUYA_REMOTE_ID,
     IR_PROVIDER_TUYA,
+    IR_PROVIDER_TUYA_CLOUD,
 )
 from custom_components.aerostate.providers.ir_types import IRCommand
 
@@ -171,4 +178,48 @@ async def test_self_test_tuya_path_sends_off_and_returns(monkeypatch) -> None:
     assert event_type == integration.EVENT_SELF_TEST_RESULT
     assert payload["success"] is True
     assert payload["transport"] == "tuya_ir_learned_codes"
+    assert payload["attempted"] == ["off"]
+
+
+@pytest.mark.asyncio
+async def test_self_test_tuya_cloud_path_sends_off_and_returns(monkeypatch) -> None:
+    entry = SimpleNamespace(
+        entry_id="entry_tuya_cloud",
+        data={
+            CONF_IR_PROVIDER: IR_PROVIDER_TUYA_CLOUD,
+            CONF_TUYA_CLOUD_ENDPOINT: "https://openapi.tuyain.com",
+            CONF_TUYA_CLOUD_ACCESS_ID: "access-id",
+            CONF_TUYA_CLOUD_ACCESS_SECRET: "access-secret",
+            CONF_TUYA_INFRARED_ID: "ir-device-id",
+            CONF_TUYA_REMOTE_ID: "remote-id",
+            CONF_TUYA_CLOUD_MODEL_PACK: "tuya_cloud.daikin_ac.v1",
+        },
+        options={},
+    )
+    hass = _FakeHass(entry)
+    call = SimpleNamespace(data={"entry_id": "entry_tuya_cloud", "profile": "full"})
+
+    sent_states: list[dict] = []
+
+    class _TuyaCloudManager:
+        async def probe_transport(self) -> bool:
+            return True
+
+        async def async_send_climate_state(self, state: dict) -> None:
+            sent_states.append(state)
+
+    monkeypatch.setattr(
+        "custom_components.aerostate.providers.tuya_cloud_ac.create_tuya_cloud_ac_manager_from_entry",
+        lambda *_args, **_kwargs: _TuyaCloudManager(),
+    )
+    monkeypatch.setattr(integration, "async_clear_validation_failed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(integration, "async_report_validation_failed", lambda *_args, **_kwargs: None)
+
+    await integration._async_handle_run_self_test(hass, call)
+
+    assert sent_states == [{"hvac_mode": "off"}]
+    event_type, payload = hass.bus.events[-1]
+    assert event_type == integration.EVENT_SELF_TEST_RESULT
+    assert payload["success"] is True
+    assert payload["transport"] == "tuya_cloud_ac_code_library"
     assert payload["attempted"] == ["off"]
