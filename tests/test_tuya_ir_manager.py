@@ -18,7 +18,10 @@ from custom_components.aerostate.providers.learned_code_resolver import (
     resolve_learned_code,
     swing_modes_from_learned_codes,
 )
-from custom_components.aerostate.providers.localtuya_rc_storage import read_learned_codes
+from custom_components.aerostate.providers.localtuya_rc_storage import (
+    find_localtuya_command_device,
+    read_learned_codes,
+)
 from custom_components.aerostate.providers.tuya_ir_manager import TuyaIRManager
 from custom_components.aerostate.providers import tuya_raw_code_library
 from custom_components.aerostate.providers.tuya_raw_code_library import export_portable_raw_codes
@@ -552,6 +555,16 @@ def test_resolve_independent_swing_stop_after_state_change() -> None:
     ]
 
 
+def test_resolve_independent_swing_middle_uses_short_learned_label() -> None:
+    codes = {"vertical_m": "raw:vmid"}
+
+    assert resolve_independent_swing_commands(
+        codes,
+        {"swing_vertical": "middle"},
+        previous_vertical="off",
+    ) == [("vertical", "vertical_m", "raw:vmid")]
+
+
 def test_resolve_independent_swing_does_not_send_initial_default_stop() -> None:
     assert resolve_independent_swing_commands(
         {"horizontal_stop": "raw:hstop", "vertical_stop": "raw:vstop"},
@@ -581,6 +594,30 @@ def test_swing_modes_from_learned_codes_exposes_real_labels_only() -> None:
         "swing",
         "highest",
     ]
+
+
+def test_find_localtuya_command_device_returns_exact_storage_device(tmp_path) -> None:
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                "Living Ac IR": {"vertical_m": "raw:vmid"},
+                "Other IR": {"vertical_m": "raw:other"},
+            },
+        },
+    )
+
+    assert (
+        find_localtuya_command_device(
+            hass,
+            "vertical_m",
+            preferred_device_name="Living AC IR",
+        )
+        == "Living Ac IR"
+    )
 
 
 @pytest.mark.asyncio
@@ -778,6 +815,57 @@ async def test_tuya_manager_sends_independent_swing_commands_after_main_state(tm
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         "raw:cool24",
-        "raw:vstop",
-        "raw:hstop",
+        "vertical_stop",
+        "horizontal_stop",
     ]
+    assert hass.services.async_call.await_args_list[1].args[2] == {
+        "entity_id": "remote.test_ir",
+        "device": "Living AC IR",
+        "command": "vertical_stop",
+    }
+    assert hass.services.async_call.await_args_list[2].args[2] == {
+        "entity_id": "remote.test_ir",
+        "device": "Living AC IR",
+        "command": "horizontal_stop",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_prefers_localtuya_named_path_for_independent_swing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.SWING_COMMAND_GAP_SECONDS", 0)
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                "Living Ac IR": {
+                    "power_off": "raw:off",
+                    "temp_24": "raw:cool24",
+                    "vertical_m": "raw:vmid",
+                },
+            },
+        },
+    )
+    hass.services = SimpleNamespace(async_call=AsyncMock())
+    hass.states = SimpleNamespace(get=lambda _entity_id: MagicMock(state="on"))
+    manager = TuyaIRManager(hass, "remote.test_ir", "Living AC IR")
+    manager._last_known_power = True
+    manager._last_swing_vertical = "off"
+
+    await manager.async_send_climate_state(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "middle",
+        },
+    )
+
+    assert hass.services.async_call.await_args_list[1].args[2] == {
+        "entity_id": "remote.test_ir",
+        "device": "Living Ac IR",
+        "command": "vertical_m",
+    }

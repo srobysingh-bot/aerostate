@@ -31,6 +31,45 @@ _SWING_MODE_ORDER = [
     "right_swing",
     "full_swing",
 ]
+_SWING_LABEL_ALIASES: dict[str, dict[str, str]] = {
+    "vertical": {
+        "m": "middle",
+        "mid": "middle",
+        "center": "middle",
+        "h": "high",
+        "hi": "high",
+        "top": "highest",
+        "l": "low",
+        "lo": "low",
+        "bottom": "lowest",
+    },
+    "horizontal": {
+        "m": "mid",
+        "middle": "mid",
+        "center": "mid",
+        "c": "mid",
+        "l": "left",
+        "r": "right",
+        "lm": "left_mid",
+        "rm": "right_mid",
+    },
+}
+_SWING_MODE_ALIASES: dict[str, dict[str, list[str]]] = {
+    "vertical": {
+        "middle": ["m", "mid", "center"],
+        "high": ["h", "hi"],
+        "highest": ["top"],
+        "low": ["l", "lo"],
+        "lowest": ["bottom"],
+    },
+    "horizontal": {
+        "mid": ["m", "middle", "center", "c"],
+        "left": ["l"],
+        "right": ["r"],
+        "left_mid": ["lm"],
+        "right_mid": ["rm"],
+    },
+}
 
 
 class LearnedCodeNotAvailable(KeyError):
@@ -274,6 +313,8 @@ def _swing_mode_from_label(label: str, axis: str) -> str | None:
         return "swing"
     if suffix == "toggle":
         return "swing"
+    if suffix in _SWING_LABEL_ALIASES.get(axis, {}):
+        return _SWING_LABEL_ALIASES[axis][suffix]
     return suffix
 
 
@@ -294,6 +335,14 @@ def _swing_label_candidates(axis: str, mode: str | None) -> list[str]:
         f"swing_{axis}_{mode}",
         f"{axis}_swing_{mode}",
     ]
+    for alias in _SWING_MODE_ALIASES.get(axis, {}).get(mode, []):
+        labels.extend(
+            [
+                f"{axis}_{alias}",
+                f"swing_{axis}_{alias}",
+                f"{axis}_swing_{alias}",
+            ]
+        )
 
     if mode in _SWING_OFF_VALUES:
         labels.extend(

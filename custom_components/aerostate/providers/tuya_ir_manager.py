@@ -12,7 +12,7 @@ from .learned_code_resolver import (
     resolve_independent_swing_commands,
     resolve_learned_code,
 )
-from .localtuya_rc_storage import read_learned_codes
+from .localtuya_rc_storage import find_localtuya_command_device, read_learned_codes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class TuyaIRManager:
         self._last_known_power: bool | None = None
         self._last_swing_vertical: str | None = None
         self._last_swing_horizontal: str | None = None
+        self._localtuya_named_command_devices: dict[str, str | None] = {}
 
     def _ensure_codes_loaded(self) -> None:
         """Load learned codes from storage on first use."""
@@ -100,7 +101,7 @@ class TuyaIRManager:
                     label,
                     self._remote_entity_id,
                 )
-                await self._async_send_raw_command(swing_command)
+                await self._async_send_independent_command(label, swing_command)
 
         self._last_known_power = wants_power
         self._last_swing_vertical = self._normalize_swing_state(state.get("swing_vertical"))
@@ -130,6 +131,41 @@ class TuyaIRManager:
             },
             blocking=False,
         )
+
+    async def _async_send_independent_command(self, label: str, raw_command: str) -> None:
+        """
+        Send an independent learned command.
+
+        When the label exists in localtuya_rc storage, prefer the exact named
+        command path the user tested manually. If the integration is running on
+        another Home Assistant without localtuya_rc storage, fall back to the
+        portable raw command.
+        """
+        device_name = self._localtuya_named_command_device(label)
+        if device_name:
+            await self._hass.services.async_call(
+                "remote",
+                "send_command",
+                {
+                    "entity_id": self._remote_entity_id,
+                    "device": device_name,
+                    "command": label,
+                },
+                blocking=False,
+            )
+            return
+
+        await self._async_send_raw_command(raw_command)
+
+    def _localtuya_named_command_device(self, label: str) -> str | None:
+        """Return cached localtuya_rc device name for a command label."""
+        if label not in self._localtuya_named_command_devices:
+            self._localtuya_named_command_devices[label] = find_localtuya_command_device(
+                self._hass,
+                label,
+                preferred_device_name=self._device_name,
+            )
+        return self._localtuya_named_command_devices[label]
 
     async def _async_notify_missing_code(self, state: dict[str, Any], err: LearnedCodeNotAvailable) -> None:
         """Create a visible HA notification for unsupported learned-code gaps."""

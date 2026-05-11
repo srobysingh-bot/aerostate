@@ -351,6 +351,36 @@ def list_available_code_sources(hass) -> list[dict[str, object]]:
     return sources
 
 
+def find_localtuya_command_device(
+    hass,
+    command_name: str,
+    *,
+    preferred_device_name: str = "",
+) -> str | None:
+    """
+    Return the localtuya_rc device name that owns a learned command label.
+
+    This is used for independent commands that localtuya_rc handles more
+    reliably through its named-command path:
+        remote.send_command(device=<device>, command=<label>)
+    """
+    command_name = str(command_name).strip()
+    if not command_name:
+        return None
+
+    preferred = _normalize_name(preferred_device_name)
+    fallback_name: str | None = None
+    for source_name, codes, _path in _iter_localtuya_source_codes(hass):
+        if command_name not in codes:
+            continue
+        if preferred and _normalize_name(source_name) == preferred:
+            return source_name
+        if fallback_name is None:
+            fallback_name = source_name
+
+    return fallback_name
+
+
 def _iter_localtuya_source_codes(hass):
     """Yield available localtuya_rc device code maps from primary/backups."""
     config_dir = _config_dir(hass)
