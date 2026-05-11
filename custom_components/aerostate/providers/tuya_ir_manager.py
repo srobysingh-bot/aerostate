@@ -9,6 +9,7 @@ from typing import Any
 from .learned_code_resolver import (
     LearnedCodeNotAvailable,
     get_coverage_summary,
+    resolve_independent_swing_commands,
     resolve_learned_code,
 )
 from .localtuya_rc_storage import read_learned_codes
@@ -16,6 +17,7 @@ from .localtuya_rc_storage import read_learned_codes
 _LOGGER = logging.getLogger(__name__)
 
 POWER_ON_SETTLE_SECONDS = 0.8
+SWING_COMMAND_GAP_SECONDS = 0.35
 
 
 class TuyaIRManager:
@@ -33,6 +35,8 @@ class TuyaIRManager:
         self._learned_codes: dict[str, str] = {}
         self._codes_loaded = False
         self._last_known_power: bool | None = None
+        self._last_swing_vertical: str | None = None
+        self._last_swing_horizontal: str | None = None
 
     def _ensure_codes_loaded(self) -> None:
         """Load learned codes from storage on first use."""
@@ -80,7 +84,34 @@ class TuyaIRManager:
 
         _LOGGER.debug("TuyaIRManager: sending state=%s via %s", state, self._remote_entity_id)
         await self._async_send_raw_command(raw_command)
+
+        if wants_power:
+            swing_commands = resolve_independent_swing_commands(
+                self._learned_codes,
+                state,
+                previous_vertical=self._last_swing_vertical,
+                previous_horizontal=self._last_swing_horizontal,
+            )
+            for axis, label, swing_command in swing_commands:
+                await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
+                _LOGGER.info(
+                    "TuyaIRManager: sending independent %s swing command '%s' via %s",
+                    axis,
+                    label,
+                    self._remote_entity_id,
+                )
+                await self._async_send_raw_command(swing_command)
+
         self._last_known_power = wants_power
+        self._last_swing_vertical = self._normalize_swing_state(state.get("swing_vertical"))
+        self._last_swing_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
+
+    @staticmethod
+    def _normalize_swing_state(value: object) -> str | None:
+        """Normalize cached swing values the same way the resolver expects them."""
+        if value is None:
+            return None
+        return str(value).strip().lower().replace(" ", "_").replace("-", "_")
 
     async def _async_send_raw_command(self, raw_command: str) -> None:
         """Send one learned raw command through the configured remote entity.

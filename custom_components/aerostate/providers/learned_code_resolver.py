@@ -7,6 +7,9 @@ from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
+_SWING_OFF_VALUES = {"off", "none", "stop", "stopped", "false", "0"}
+_SWING_ON_VALUES = {"on", "swing", "auto", "start", "true", "1"}
+
 
 class LearnedCodeNotAvailable(KeyError):
     """No learned code covers the requested climate state."""
@@ -163,6 +166,110 @@ def resolve_learned_code(learned_codes: dict[str, str], state: dict[str, Any]) -
     raise LearnedCodeNotAvailable(f"Unknown hvac_mode: {hvac_mode}")
 
 
+def resolve_independent_swing_commands(
+    learned_codes: dict[str, str],
+    state: dict[str, Any],
+    *,
+    previous_vertical: str | None = None,
+    previous_horizontal: str | None = None,
+) -> list[tuple[str, str, str]]:
+    """
+    Resolve changed independent swing controls to learned raw IR commands.
+
+    LG remotes can expose vertical and horizontal swing as independent buttons.
+    Those commands should be sent in addition to the full AC state command, but
+    only when the user actually changes a swing setting. This avoids sending
+    "horizontal_stop" on every normal temperature/fan update.
+    """
+    commands: list[tuple[str, str, str]] = []
+    for axis, key, previous in (
+        ("vertical", "swing_vertical", previous_vertical),
+        ("horizontal", "swing_horizontal", previous_horizontal),
+    ):
+        current = state.get(key)
+        if current is None:
+            continue
+
+        current_norm = _normalize_swing_mode(current)
+        previous_norm = _normalize_swing_mode(previous)
+        if current_norm == previous_norm:
+            continue
+
+        # Initial default "off" should not emit a stop command. Only user
+        # changes from a known non-off state to off should send *_stop.
+        if previous is None and current_norm in _SWING_OFF_VALUES:
+            continue
+
+        for label in _swing_label_candidates(axis, current_norm):
+            raw_command = learned_codes.get(label)
+            if raw_command:
+                _LOGGER.debug("%s swing %s -> %s", axis, current_norm, label)
+                commands.append((axis, label, raw_command))
+                break
+        else:
+            _LOGGER.warning(
+                "%s swing mode '%s' changed but no learned independent swing command was found",
+                axis,
+                current_norm,
+            )
+    return commands
+
+
+def _normalize_swing_mode(value: object) -> str | None:
+    """Normalize a Home Assistant swing mode value for learned-code lookup."""
+    if value is None:
+        return None
+    return str(value).strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _swing_label_candidates(axis: str, mode: str | None) -> list[str]:
+    """Return learned command labels to try for one swing axis/mode."""
+    if not mode:
+        return []
+
+    labels = [
+        f"{axis}_{mode}",
+        f"swing_{axis}_{mode}",
+        f"{axis}_swing_{mode}",
+    ]
+
+    if mode in _SWING_OFF_VALUES:
+        labels.extend(
+            [
+                f"{axis}_stop",
+                f"swing_{axis}_stop",
+                f"{axis}_swing_stop",
+                f"{axis}_off",
+                f"swing_{axis}_off",
+                f"{axis}_swing_off",
+            ]
+        )
+    elif mode in _SWING_ON_VALUES:
+        labels.extend(
+            [
+                f"{axis}_on",
+                f"swing_{axis}_on",
+                f"{axis}_swing",
+                f"swing_{axis}",
+                f"{axis}_toggle",
+                f"swing_{axis}_toggle",
+                f"{axis}_start",
+                f"swing_{axis}_start",
+                f"{axis}_swing_start",
+            ]
+        )
+    else:
+        labels.extend(
+            [
+                f"{axis}_{mode}_swing",
+                f"swing_{axis}_{mode}_swing",
+            ]
+        )
+
+    seen: set[str] = set()
+    return [label for label in labels if not (label in seen or seen.add(label))]
+
+
 def _nearest_temps(target: int, learned_codes: dict[str, str]) -> list[int]:
     """Return temperatures 16-30 that exist in learned_codes, sorted by proximity."""
     available = [temp for temp in range(16, 31) if f"temp_{temp}" in learned_codes]
@@ -184,6 +291,16 @@ def get_coverage_summary(learned_codes: dict[str, str]) -> dict[str, Any]:
     heat_keys = [key for key in learned_codes if key.startswith("heat_")]
     dry_keys = [key for key in learned_codes if key.startswith("dry_")]
     auto_keys = [key for key in learned_codes if key.startswith("auto_")]
+    vertical_swing_keys = [
+        key
+        for key in learned_codes
+        if key.startswith(("vertical_", "swing_vertical_"))
+    ]
+    horizontal_swing_keys = [
+        key
+        for key in learned_codes
+        if key.startswith(("horizontal_", "swing_horizontal_"))
+    ]
 
     gaps = _identify_gaps(learned_codes, has_off=has_off, heat_keys=heat_keys, dry_keys=dry_keys)
     cool_exact_fan_temps = list(cool_fan_exact.keys())
@@ -203,7 +320,9 @@ def get_coverage_summary(learned_codes: dict[str, str]) -> dict[str, Any]:
         "auto_codes": len(auto_keys),
         "heat_supported": bool(heat_keys),
         "dry_supported": bool(dry_keys),
-        "swing_on_supported": False,
+        "swing_vertical_codes": vertical_swing_keys,
+        "swing_horizontal_codes": horizontal_swing_keys,
+        "swing_on_supported": bool(vertical_swing_keys or horizontal_swing_keys),
         "gaps": gaps,
         "total_gaps": len(gaps),
     }

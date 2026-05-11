@@ -42,7 +42,13 @@ def _normalize_name(name: str) -> str:
     return " ".join(str(name).strip().casefold().split())
 
 
-def _device_codes_from_parsed(data: object, device_name: str, path: str) -> dict[str, str]:
+def _device_codes_from_parsed(
+    data: object,
+    device_name: str,
+    path: str,
+    *,
+    log_missing: bool = True,
+) -> dict[str, str]:
     """Extract device command map from parsed localtuya_rc storage JSON."""
     if not isinstance(data, dict):
         return {}
@@ -76,11 +82,12 @@ def _device_codes_from_parsed(data: object, device_name: str, path: str) -> dict
 
     cleaned = _clean_device_codes(device_codes)
     if not cleaned:
-        _LOGGER.error(
-            "Device '%s' not found in storage. Available devices: %s - check your device name in AeroState options.",
-            device_name,
-            list(devices.keys()),
-        )
+        if log_missing:
+            _LOGGER.error(
+                "Device '%s' not found in storage. Available devices: %s - check your device name in AeroState options.",
+                device_name,
+                list(devices.keys()),
+            )
         return {}
 
     _LOGGER.debug(
@@ -156,7 +163,7 @@ def _extract_all_device_codes_from_fragment(clean_json: str) -> dict[str, dict[s
     return recovered
 
 
-def _load_device_codes(path: str, device_name: str) -> dict[str, str]:
+def _load_device_codes(path: str, device_name: str, *, log_missing: bool = True) -> dict[str, str]:
     """Load device codes from a localtuya_rc storage file path."""
     try:
         with open(path, "r", encoding="utf-8") as file_obj:
@@ -177,7 +184,7 @@ def _load_device_codes(path: str, device_name: str) -> dict[str, str]:
             return recovered
         _LOGGER.error("Failed to parse %s after stripping comments: %s", os.path.basename(path), err)
         return {}
-    return _device_codes_from_parsed(data, device_name, path)
+    return _device_codes_from_parsed(data, device_name, path, log_missing=log_missing)
 
 
 def _load_all_device_codes(path: str) -> dict[str, dict[str, str]]:
@@ -232,7 +239,14 @@ def read_learned_codes(hass, device_name: str) -> dict[str, str]:
         return merged_codes
 
     if portable_codes:
-        return portable_codes
+        merged_codes = _merge_missing_from_any_localtuya_source(
+            hass,
+            device_name=device_name,
+            base_codes=portable_codes,
+        )
+        if len(merged_codes) > len(portable_codes):
+            _save_portable_copy(hass, device_name=device_name, commands=merged_codes)
+        return merged_codes
 
     if localtuya_codes:
         _save_portable_copy(hass, device_name=device_name, commands=localtuya_codes)
@@ -252,6 +266,50 @@ def read_learned_codes(hass, device_name: str) -> dict[str, str]:
                 _save_portable_copy(hass, device_name=source_name, commands=fallback_codes)
             return fallback_codes
     return {}
+
+
+def _merge_missing_from_any_localtuya_source(
+    hass,
+    *,
+    device_name: str,
+    base_codes: dict[str, str],
+) -> dict[str, str]:
+    """
+    Fill missing portable labels from localtuya_rc storage without overriding.
+
+    This lets users learn extra independent commands, such as horizontal_stop
+    or vertical_stop, under whichever localtuya_rc device name they used. The
+    stable bundled/user pack keeps controlling existing temp/fan/off labels,
+    while newly learned labels are imported once and saved as a portable copy.
+    """
+    merged = dict(base_codes)
+    added_by_source: dict[str, list[str]] = {}
+    configured_name = _normalize_name(device_name)
+
+    for source_name, source_codes, _path in _iter_localtuya_source_codes(hass):
+        # Exact source names are already handled before this fallback.
+        if _normalize_name(source_name) == configured_name:
+            continue
+        for label, raw_command in source_codes.items():
+            if label in merged:
+                continue
+            merged[label] = raw_command
+            added_by_source.setdefault(source_name, []).append(label)
+
+    if added_by_source:
+        preview = {
+            source: labels[:6]
+            for source, labels in added_by_source.items()
+        }
+        _LOGGER.warning(
+            "AeroState raw-code source '%s' was missing %d labels; "
+            "filled missing labels from localtuya_rc storage sources: %s",
+            device_name,
+            len(merged) - len(base_codes),
+            preview,
+        )
+
+    return merged
 
 
 def _save_portable_copy(hass, *, device_name: str, commands: dict[str, str]) -> None:
@@ -333,7 +391,7 @@ def read_localtuya_storage_codes(hass, device_name: str, *, log_missing: bool = 
     primary_path = os.path.join(storage_dir, STORAGE_KEY)
 
     if os.path.exists(primary_path):
-        result = _load_device_codes(primary_path, device_name)
+        result = _load_device_codes(primary_path, device_name, log_missing=log_missing)
         if result:
             return result
         if log_missing:
@@ -373,7 +431,7 @@ def read_localtuya_storage_codes(hass, device_name: str, *, log_missing: bool = 
             backup_path,
             primary_path,
         )
-        result = _load_device_codes(backup_path, device_name)
+        result = _load_device_codes(backup_path, device_name, log_missing=log_missing)
         if result:
             return result
 

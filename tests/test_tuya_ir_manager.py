@@ -14,6 +14,7 @@ pytest.importorskip("homeassistant")
 from custom_components.aerostate.providers.learned_code_resolver import (
     LearnedCodeNotAvailable,
     get_coverage_summary,
+    resolve_independent_swing_commands,
     resolve_learned_code,
 )
 from custom_components.aerostate.providers.localtuya_rc_storage import read_learned_codes
@@ -387,6 +388,44 @@ def test_read_learned_codes_merges_portable_pack_with_localtuya_cache(tmp_path) 
     }
 
 
+def test_read_learned_codes_fills_missing_labels_from_unmatched_localtuya_source(tmp_path) -> None:
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                "Living Ac IR": {
+                    "power_off": "raw:storage_off",
+                    "horizontal_stop": "raw:hstop",
+                    "vertical_stop": "raw:vstop",
+                }
+            },
+        },
+    )
+    library_dir = tmp_path / "aerostate_tuya_raw_codes"
+    library_dir.mkdir()
+    (library_dir / "dining_room.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pack_id": "dining_room",
+                "device_name": "Dining Room",
+                "commands": {"power_off": "raw:portable_off", "temp_24": "raw:portable_24"},
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    assert read_learned_codes(hass, "Dining Room") == {
+        "power_off": "raw:portable_off",
+        "temp_24": "raw:portable_24",
+        "horizontal_stop": "raw:hstop",
+        "vertical_stop": "raw:vstop",
+    }
+
+
 def test_bundled_lg_raw_pack_has_required_off_and_high_temp_fallback_codes(tmp_path, monkeypatch) -> None:
     real_bundled_dir = Path(tuya_raw_code_library.__file__).resolve().parents[1] / "packs" / "tuya" / "raw_codes"
     monkeypatch.setattr(tuya_raw_code_library, "_bundled_library_dir", lambda: str(real_bundled_dir))
@@ -493,6 +532,30 @@ def test_coverage_summary_identifies_gaps_correctly() -> None:
     assert coverage["cool_temps_auto_fan"] == [16]
     assert coverage["cool_temps_with_specific_fan"] == [24]
     assert "cool temp 17C: no code at all" in coverage["gaps"]
+
+
+def test_resolve_independent_swing_stop_after_state_change() -> None:
+    codes = {
+        "horizontal_stop": "raw:hstop",
+        "vertical_stop": "raw:vstop",
+    }
+
+    assert resolve_independent_swing_commands(
+        codes,
+        {"swing_vertical": "off", "swing_horizontal": "off"},
+        previous_vertical="swing",
+        previous_horizontal="on",
+    ) == [
+        ("vertical", "vertical_stop", "raw:vstop"),
+        ("horizontal", "horizontal_stop", "raw:hstop"),
+    ]
+
+
+def test_resolve_independent_swing_does_not_send_initial_default_stop() -> None:
+    assert resolve_independent_swing_commands(
+        {"horizontal_stop": "raw:hstop", "vertical_stop": "raw:vstop"},
+        {"swing_vertical": "off", "swing_horizontal": "off"},
+    ) == []
 
 
 @pytest.mark.asyncio
@@ -649,3 +712,47 @@ async def test_tuya_manager_notifies_when_learned_code_missing(tmp_path) -> None
         "create",
     )
     assert "Heat mode" in hass.services.async_call.await_args.args[2]["message"]
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_sends_independent_swing_commands_after_main_state(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.SWING_COMMAND_GAP_SECONDS", 0)
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                "Living AC IR": {
+                    "power_off": "raw:off",
+                    "temp_24": "raw:cool24",
+                    "horizontal_stop": "raw:hstop",
+                    "vertical_stop": "raw:vstop",
+                },
+            },
+        },
+    )
+    hass.services = SimpleNamespace(async_call=AsyncMock())
+    hass.states = SimpleNamespace(get=lambda _entity_id: MagicMock(state="on"))
+    manager = TuyaIRManager(hass, "remote.test_ir", "Living AC IR")
+    manager._last_known_power = True
+    manager._last_swing_vertical = "on"
+    manager._last_swing_horizontal = "on"
+
+    await manager.async_send_climate_state(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "swing_vertical": "off",
+            "swing_horizontal": "off",
+        },
+    )
+
+    assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        "raw:cool24",
+        "raw:vstop",
+        "raw:hstop",
+    ]
