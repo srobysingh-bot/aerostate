@@ -17,7 +17,8 @@ from .localtuya_rc_storage import find_localtuya_command_device, read_learned_co
 
 _LOGGER = logging.getLogger(__name__)
 
-POWER_ON_SETTLE_SECONDS = 0.8
+POWER_ON_SETTLE_SECONDS = 0.5
+STATEFUL_COMMAND_GAP_SECONDS = 0.3
 SWING_COMMAND_GAP_SECONDS = 0.35
 
 
@@ -61,9 +62,24 @@ class TuyaIRManager:
         """Return True when the selected pack contains direct Tuya base64 codes."""
         return bool(getattr(self._command_pack, "native_base64", False))
 
+    def _uses_stateful_raw_pack(self) -> bool:
+        """Return True when the selected pack contains stateful localtuya_rc raw codes."""
+        return bool(
+            self._command_pack is not None
+            and getattr(self._command_pack, "protocol", "") == "stateful"
+            and getattr(self._command_pack, "transport", "") == "localtuya_rc"
+        )
+
+    def _uses_precomputed_pack(self) -> bool:
+        """Return True when commands come from the selected pack, not learned storage."""
+        return bool(
+            self._command_pack is not None
+            and not getattr(self._command_pack, "requires_learned_codes", True)
+        )
+
     def _ensure_codes_loaded(self) -> None:
         """Load learned codes from storage on first use."""
-        if self._uses_native_b64_pack():
+        if self._uses_precomputed_pack():
             return
         if not self._codes_loaded:
             self._learned_codes = read_learned_codes(self._hass, self._device_name)
@@ -81,6 +97,10 @@ class TuyaIRManager:
 
     async def async_send_climate_state(self, state: dict[str, Any]) -> None:
         """Resolve climate state to a learned raw IR code and send it."""
+        if self._uses_stateful_raw_pack():
+            await self._async_send_stateful_raw_state(state)
+            return
+
         if self._uses_native_b64_pack():
             await self._async_send_precomputed_state(state)
             return
@@ -143,6 +163,74 @@ class TuyaIRManager:
         self._last_main_state_signature = main_signature
         self._last_swing_vertical = self._normalize_swing_state(state.get("swing_vertical"))
         self._last_swing_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
+
+    async def _async_send_stateful_raw_state(self, state: dict[str, Any]) -> None:
+        """Send a stateful localtuya_rc pack as power, temperature, then fan commands."""
+        pack = self._command_pack
+        if pack is None:
+            raise LearnedCodeNotAvailable("Stateful Tuya command pack is not loaded")
+
+        hvac_mode = str(state.get("hvac_mode", "off")).lower()
+        wants_power = hvac_mode != "off" and bool(state.get("power", True))
+        previously_off = bool(state.get("previously_off", self._last_known_power is not True))
+
+        if not wants_power:
+            await self._async_send_raw_command(self._resolve_pack_label("power_off"))
+            self._last_known_power = False
+            self._last_main_state_signature = self._main_state_signature(state, wants_power=False)
+            return
+
+        if hvac_mode != "cool":
+            err = LearnedCodeNotAvailable(f"Stateful pack only supports cool mode, got {hvac_mode}")
+            await self._async_notify_missing_code(state, err)
+            raise err
+
+        if previously_off:
+            _LOGGER.info(
+                "TuyaIRManager: waking stateful localtuya_rc AC with power_on via %s",
+                self._remote_entity_id,
+            )
+            await self._async_send_raw_command(self._resolve_pack_label("power_on"))
+            await asyncio.sleep(POWER_ON_SETTLE_SECONDS)
+
+        temperature = self._state_temperature(state)
+        if temperature is None:
+            temperature = int(getattr(pack, "min_temperature", 16))
+        temp_key = f"temp_{temperature}"
+        _LOGGER.debug("TuyaIRManager: sending stateful temperature command %s", temp_key)
+        await self._async_send_raw_command(self._resolve_pack_label(temp_key))
+
+        fan_key = self._fan_mode_to_key(str(state.get("fan_mode") or "auto").lower())
+        if fan_key:
+            await asyncio.sleep(STATEFUL_COMMAND_GAP_SECONDS)
+            _LOGGER.debug("TuyaIRManager: sending stateful fan command %s", fan_key)
+            await self._async_send_raw_command(self._resolve_pack_label(fan_key))
+
+        self._last_known_power = True
+        self._last_main_state_signature = self._main_state_signature(state, wants_power=True)
+        self._last_swing_vertical = self._normalize_swing_state(state.get("swing_vertical"))
+        self._last_swing_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
+
+    def _resolve_pack_label(self, label: str) -> str:
+        """Return a selected-pack command payload by label."""
+        pack = self._command_pack
+        code = pack.resolve_by_label(label) if pack is not None else None
+        if code:
+            return code
+        raise LearnedCodeNotAvailable(f"Selected Tuya pack does not contain command '{label}'")
+
+    @staticmethod
+    def _fan_mode_to_key(fan_mode: str) -> str | None:
+        """Map Home Assistant fan modes to stateful localtuya_rc command labels."""
+        mapping = {
+            "low": "fan_speed_1",
+            "mid_low": "fan_speed_2",
+            "mid": "fan_speed_3",
+            "mid_high": "fan_speed_4",
+            "high": "fan_speed_5",
+            "auto": None,
+        }
+        return mapping.get(fan_mode)
 
     async def _async_send_precomputed_state(self, state: dict[str, Any]) -> None:
         """Resolve and send a pre-generated native Tuya base64 command."""
@@ -339,7 +427,7 @@ class TuyaIRManager:
             _LOGGER.warning("TuyaIRManager: remote entity %s is %s", self._remote_entity_id, state.state)
             return False
 
-        if self._uses_native_b64_pack():
+        if self._uses_precomputed_pack():
             return True
 
         self._ensure_codes_loaded()
@@ -352,7 +440,13 @@ class TuyaIRManager:
         """Return debug-safe manager details."""
         self._ensure_codes_loaded()
         return {
-            "transport": "tuya_ir_native_b64" if self._uses_native_b64_pack() else "tuya_ir_learned_codes",
+            "transport": (
+                "localtuya_rc_stateful_pack"
+                if self._uses_stateful_raw_pack()
+                else "tuya_ir_native_b64"
+                if self._uses_native_b64_pack()
+                else "tuya_ir_learned_codes"
+            ),
             "remote_entity": self._remote_entity_id,
             "device_name": self._device_name,
             "pack_id": self._pack_id or "",
@@ -362,7 +456,7 @@ class TuyaIRManager:
                     "total_codes": len(getattr(self._command_pack, "commands", []) or []),
                     "requires_learning": False,
                 }
-                if self._uses_native_b64_pack()
+                if self._uses_precomputed_pack()
                 else get_coverage_summary(self._learned_codes)
             ),
         }

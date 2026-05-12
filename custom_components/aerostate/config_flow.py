@@ -371,10 +371,14 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         device_name = str(self._tuya_data.get(CONF_TUYA_DEVICE_NAME, ""))
         if not getattr(selected_pack, "requires_learned_codes", True):
+            model_pack = selected_pack.to_model_pack()
             fan_codes = [
                 cmd
                 for cmd in selected_pack.commands
-                if cmd.hvac_mode == "fan_only" and not cmd.turn_on_variant
+                if (
+                    (cmd.hvac_mode == "fan_only" or cmd.label.startswith("fan_speed_"))
+                    and not cmd.turn_on_variant
+                )
             ]
             return self.async_show_form(
                 step_id="tuya_confirm",
@@ -387,8 +391,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "cool_temps_fan": f"{selected_pack.min_temperature}-{selected_pack.max_temperature}",
                     "fan_codes": str(len(fan_codes)),
                     "has_power_off": "Yes",
-                    "heat_supported": "Yes",
-                    "dry_supported": "Yes",
+                    "heat_supported": "Yes" if "heat" in model_pack.capabilities.hvac_modes else "No",
+                    "dry_supported": "Yes" if "dry" in model_pack.capabilities.hvac_modes else "No",
                     "gaps": "none",
                 },
             )

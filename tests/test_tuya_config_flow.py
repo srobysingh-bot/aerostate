@@ -247,16 +247,16 @@ async def test_tuya_device_step_accepts_generated_pack_without_learned_codes(tmp
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
-            CONF_TUYA_MODEL_PACK: "lg.akb75415308.tuya.protocol.v1",
+            CONF_TUYA_MODEL_PACK: "lg.akb75415308.localtuya_rc.protocol.v1",
         },
     )
 
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_confirm"
-    assert result["description_placeholders"]["total_codes"] == "472"
+    assert result["description_placeholders"]["total_codes"] == "22"
     assert "No learning required" in result["description_placeholders"]["code_source_status"]
-    assert result["description_placeholders"]["heat_supported"] == "Yes"
-    assert result["description_placeholders"]["dry_supported"] == "Yes"
+    assert result["description_placeholders"]["heat_supported"] == "No"
+    assert result["description_placeholders"]["dry_supported"] == "No"
 
 
 @pytest.mark.asyncio

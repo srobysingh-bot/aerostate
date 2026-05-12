@@ -35,6 +35,8 @@ class TuyaIRPack:
     native_base64: bool = False
     requires_learned_codes: bool = True
     swing_toggle_label: str | None = None
+    transport: str = "tuya_key1"
+    protocol: str = "stateless"
 
     def resolve(
         self,
@@ -121,7 +123,7 @@ class TuyaIRPack:
             pack_id=self.pack_id,
             brand=self.brand,
             models=self.models,
-            transport="tuya_remote" if self.native_base64 else "tuya_key1",
+            transport="tuya_remote" if self.native_base64 else self.transport,
             pack_version=1,
             min_temperature=self.min_temperature,
             max_temperature=self.max_temperature,

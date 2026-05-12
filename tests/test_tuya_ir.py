@@ -73,19 +73,21 @@ def test_tuya_pack_has_complete_lg_placeholder_matrix() -> None:
     assert {"turbo_on", "turbo_off", "sleep_on", "sleep_off", "eco_on", "eco_off"} <= labels
 
 
-def test_akb75415308_tuya_pack_has_generated_native_b64_matrix() -> None:
-    pack = get_tuya_pack("lg.akb75415308.tuya.protocol.v1")
+def test_akb75415308_tuya_pack_has_stateful_localtuya_rc_codes() -> None:
+    pack = get_tuya_pack("lg.akb75415308.localtuya_rc.protocol.v1")
     model_pack = pack.to_model_pack()
 
-    assert pack.native_base64 is True
+    assert pack.native_base64 is False
     assert pack.requires_learned_codes is False
-    assert len(CODES) == 472
-    assert len(pack.commands) == 472
-    assert model_pack.transport == "tuya_remote"
-    assert model_pack.capabilities.hvac_modes == ["cool", "heat", "dry", "fan_only", "auto"]
-    assert model_pack.capabilities.fan_modes == ["auto", "low", "mid", "high", "highest"]
-    assert model_pack.capabilities.swing_vertical_modes == ["off", "on"]
-    assert pack.resolve("cool", 24, "auto", False, previously_off=True) == CODES["cool_on_t24_fauto"]
-    assert pack.resolve("cool", 24, "auto", False, previously_off=False) == CODES["cool_t24_fauto"]
-    assert pack.resolve("fan_only", 24, "high", False, previously_off=True) == CODES["fan_on_fhigh"]
-    assert pack.resolve_swing_toggle() == CODES["swing_toggle"]
+    assert pack.transport == "localtuya_rc"
+    assert pack.protocol == "stateful"
+    assert len(CODES) == 22
+    assert len(pack.commands) == 22
+    assert model_pack.transport == "localtuya_rc"
+    assert model_pack.capabilities.hvac_modes == ["cool"]
+    assert model_pack.capabilities.fan_modes == ["auto", "low", "mid_low", "mid", "mid_high", "high"]
+    assert model_pack.capabilities.swing_vertical_modes == []
+    assert pack.resolve_by_label("power_on") == CODES["power_on"]
+    assert pack.resolve_by_label("power_off") == CODES["power_off"]
+    assert pack.resolve_by_label("temp_24") == CODES["temp_24"]
+    assert pack.resolve_by_label("fan_speed_1") == CODES["fan_speed_1"]

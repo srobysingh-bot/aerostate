@@ -673,7 +673,9 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_sends_generated_native_b64_codes(tmp_path) -> None:
+async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.STATEFUL_COMMAND_GAP_SECONDS", 0)
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
         services=SimpleNamespace(async_call=AsyncMock()),
@@ -683,7 +685,7 @@ async def test_tuya_manager_sends_generated_native_b64_codes(tmp_path) -> None:
         hass,
         "remote.test_ir",
         "Living AC IR",
-        pack_id="lg.akb75415308.tuya.protocol.v1",
+        pack_id="lg.akb75415308.localtuya_rc.protocol.v1",
     )
 
     await manager.async_send_climate_state(
@@ -691,7 +693,7 @@ async def test_tuya_manager_sends_generated_native_b64_codes(tmp_path) -> None:
             "power": True,
             "hvac_mode": "cool",
             "target_temperature": 24,
-            "fan_mode": "auto",
+            "fan_mode": "low",
             "previously_off": True,
         },
     )
@@ -706,14 +708,21 @@ async def test_tuya_manager_sends_generated_native_b64_codes(tmp_path) -> None:
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
-        f"b64:{CODES['cool_on_t24_fauto']}",
-        f"b64:{CODES['cool_t26_fauto']}",
+        CODES["power_on"],
+        CODES["temp_24"],
+        CODES["fan_speed_1"],
+        CODES["temp_26"],
     ]
-    assert [call.kwargs["blocking"] for call in hass.services.async_call.await_args_list] == [False, False]
+    assert [call.kwargs["blocking"] for call in hass.services.async_call.await_args_list] == [
+        False,
+        False,
+        False,
+        False,
+    ]
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_native_b64_probe_does_not_require_learned_codes(tmp_path) -> None:
+async def test_tuya_manager_stateful_pack_probe_does_not_require_learned_codes(tmp_path) -> None:
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
         services=SimpleNamespace(async_call=AsyncMock()),
@@ -723,7 +732,7 @@ async def test_tuya_manager_native_b64_probe_does_not_require_learned_codes(tmp_
         hass,
         "remote.test_ir",
         "Living AC IR",
-        pack_id="lg.akb75415308.tuya.protocol.v1",
+        pack_id="lg.akb75415308.localtuya_rc.protocol.v1",
     )
 
     assert await manager.probe_transport() is True
