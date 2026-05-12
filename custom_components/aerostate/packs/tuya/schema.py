@@ -17,6 +17,7 @@ class TuyaIRCommand:
     temperature: int | None = None
     fan_mode: str | None = None
     swing_on: bool = False
+    turn_on_variant: bool = False
 
 
 @dataclass
@@ -31,6 +32,9 @@ class TuyaIRPack:
     min_temperature: int
     max_temperature: int
     commands: list[TuyaIRCommand] = field(default_factory=list)
+    native_base64: bool = False
+    requires_learned_codes: bool = True
+    swing_toggle_label: str | None = None
 
     def resolve(
         self,
@@ -38,19 +42,25 @@ class TuyaIRPack:
         temperature: int | None = None,
         fan_mode: str | None = None,
         swing_on: bool = False,
+        previously_off: bool = False,
     ) -> str | None:
         """Return the matching Tuya key1 base64 payload."""
+        preferred_turn_on = previously_off and hvac_mode != "off"
+        fallback: str | None = None
         for cmd in self.commands:
             if cmd.hvac_mode != hvac_mode:
                 continue
-            if temperature is not None and cmd.temperature != temperature:
+            if cmd.temperature is not None and temperature is not None and cmd.temperature != temperature:
                 continue
-            if fan_mode is not None and cmd.fan_mode != fan_mode:
+            if cmd.fan_mode is not None and fan_mode is not None and cmd.fan_mode != fan_mode:
                 continue
             if cmd.swing_on != swing_on:
                 continue
-            return cmd.key1
-        return None
+            if cmd.turn_on_variant == preferred_turn_on:
+                return cmd.key1
+            if fallback is None and not cmd.turn_on_variant:
+                fallback = cmd.key1
+        return fallback
 
     def resolve_by_label(self, label: str) -> str | None:
         """Look up key1 directly by command label for preset/special commands."""
@@ -59,20 +69,30 @@ class TuyaIRPack:
                 return cmd.key1
         return None
 
+    def resolve_swing_toggle(self) -> str | None:
+        """Return the independent swing toggle command when the pack defines one."""
+        if not self.swing_toggle_label:
+            return None
+        return self.resolve_by_label(self.swing_toggle_label)
+
     def to_model_pack(self) -> ModelPack:
         """Expose Tuya pack capabilities through the existing climate UI model."""
-        hvac_modes = sorted(
-            {
-                cmd.hvac_mode
-                for cmd in self.commands
-                if cmd.hvac_mode not in {"off", "special"}
-            },
-        )
-        fan_modes = sorted({cmd.fan_mode for cmd in self.commands if cmd.fan_mode})
-        swing_modes = ["off", "on"] if any(cmd.swing_on for cmd in self.commands) else []
+        hvac_modes = []
+        for cmd in self.commands:
+            if cmd.hvac_mode not in {"off", "special"} and cmd.hvac_mode not in hvac_modes:
+                hvac_modes.append(cmd.hvac_mode)
+
+        fan_modes = []
+        for cmd in self.commands:
+            if cmd.fan_mode and cmd.fan_mode not in fan_modes:
+                fan_modes.append(cmd.fan_mode)
+
+        swing_modes = ["off", "on"] if self.swing_toggle_label or any(cmd.swing_on for cmd in self.commands) else []
         commands_tree: dict[str, object] = {}
 
         for cmd in self.commands:
+            if cmd.turn_on_variant:
+                continue
             if cmd.hvac_mode == "special":
                 continue
             if cmd.hvac_mode == "off":
@@ -101,7 +121,7 @@ class TuyaIRPack:
             pack_id=self.pack_id,
             brand=self.brand,
             models=self.models,
-            transport="tuya_key1",
+            transport="tuya_remote" if self.native_base64 else "tuya_key1",
             pack_version=1,
             min_temperature=self.min_temperature,
             max_temperature=self.max_temperature,

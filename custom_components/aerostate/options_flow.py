@@ -92,7 +92,7 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(value="broadlink", label="Broadlink IR (default)"),
-                            selector.SelectOptionDict(value="tuya", label="Tuya IR learned/raw codes"),
+                            selector.SelectOptionDict(value="tuya", label="Tuya IR pre-generated/learned codes"),
                             selector.SelectOptionDict(value="tuya_cloud", label="Tuya Cloud code library (Daikin)"),
                         ]
                     ),

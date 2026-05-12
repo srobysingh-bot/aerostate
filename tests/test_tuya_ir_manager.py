@@ -11,6 +11,8 @@ import pytest
 
 pytest.importorskip("homeassistant")
 
+from custom_components.aerostate.packs.tuya.lg_akb75415308_tuya_codes import CODES
+from custom_components.aerostate.providers import tuya_raw_code_library
 from custom_components.aerostate.providers.learned_code_resolver import (
     LearnedCodeNotAvailable,
     get_coverage_summary,
@@ -23,7 +25,6 @@ from custom_components.aerostate.providers.localtuya_rc_storage import (
     read_learned_codes,
 )
 from custom_components.aerostate.providers.tuya_ir_manager import TuyaIRManager
-from custom_components.aerostate.providers import tuya_raw_code_library
 from custom_components.aerostate.providers.tuya_raw_code_library import export_portable_raw_codes
 
 
@@ -669,6 +670,63 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
         {"entity_id": "remote.test_ir", "command": "raw:off"},
         blocking=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_sends_generated_native_b64_codes(tmp_path) -> None:
+    hass = SimpleNamespace(
+        config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
+        services=SimpleNamespace(async_call=AsyncMock()),
+        states=SimpleNamespace(get=lambda _entity_id: MagicMock(state="on")),
+    )
+    manager = TuyaIRManager(
+        hass,
+        "remote.test_ir",
+        "Living AC IR",
+        pack_id="lg.akb75415308.tuya.protocol.v1",
+    )
+
+    await manager.async_send_climate_state(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "previously_off": True,
+        },
+    )
+    await manager.async_send_climate_state(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 26,
+            "fan_mode": "auto",
+            "previously_off": False,
+        },
+    )
+
+    assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        f"b64:{CODES['cool_on_t24_fauto']}",
+        f"b64:{CODES['cool_t26_fauto']}",
+    ]
+    assert [call.kwargs["blocking"] for call in hass.services.async_call.await_args_list] == [False, False]
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_native_b64_probe_does_not_require_learned_codes(tmp_path) -> None:
+    hass = SimpleNamespace(
+        config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
+        services=SimpleNamespace(async_call=AsyncMock()),
+        states=SimpleNamespace(get=lambda _entity_id: MagicMock(state="on")),
+    )
+    manager = TuyaIRManager(
+        hass,
+        "remote.test_ir",
+        "Living AC IR",
+        pack_id="lg.akb75415308.tuya.protocol.v1",
+    )
+
+    assert await manager.probe_transport() is True
 
 
 @pytest.mark.asyncio

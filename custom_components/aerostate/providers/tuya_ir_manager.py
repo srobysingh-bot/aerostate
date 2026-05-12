@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from typing import Any
 
@@ -28,10 +29,13 @@ class TuyaIRManager:
         hass,
         remote_entity_id: str,
         device_name: str,
+        pack_id: str | None = None,
     ) -> None:
         self._hass = hass
         self._remote_entity_id = remote_entity_id
         self._device_name = device_name
+        self._pack_id = pack_id
+        self._command_pack = self._load_command_pack(pack_id)
         self._learned_codes: dict[str, str] = {}
         self._codes_loaded = False
         self._last_known_power: bool | None = None
@@ -40,8 +44,27 @@ class TuyaIRManager:
         self._last_main_state_signature: tuple[object, ...] | None = None
         self._localtuya_named_command_devices: dict[str, str | None] = {}
 
+    @staticmethod
+    def _load_command_pack(pack_id: str | None):
+        """Load a registered Tuya command pack when one was selected."""
+        if not isinstance(pack_id, str) or not pack_id.strip():
+            return None
+        try:
+            from ..packs.tuya.registry import get_tuya_pack
+
+            return get_tuya_pack(pack_id.strip())
+        except Exception as err:
+            _LOGGER.warning("TuyaIRManager: could not load Tuya pack '%s': %s", pack_id, err)
+            return None
+
+    def _uses_native_b64_pack(self) -> bool:
+        """Return True when the selected pack contains direct Tuya base64 codes."""
+        return bool(getattr(self._command_pack, "native_base64", False))
+
     def _ensure_codes_loaded(self) -> None:
         """Load learned codes from storage on first use."""
+        if self._uses_native_b64_pack():
+            return
         if not self._codes_loaded:
             self._learned_codes = read_learned_codes(self._hass, self._device_name)
             self._codes_loaded = True
@@ -58,6 +81,10 @@ class TuyaIRManager:
 
     async def async_send_climate_state(self, state: dict[str, Any]) -> None:
         """Resolve climate state to a learned raw IR code and send it."""
+        if self._uses_native_b64_pack():
+            await self._async_send_precomputed_state(state)
+            return
+
         self._ensure_codes_loaded()
         hvac_mode = str(state.get("hvac_mode", "off")).lower()
         wants_power = hvac_mode != "off" and bool(state.get("power", True))
@@ -117,6 +144,87 @@ class TuyaIRManager:
         self._last_swing_vertical = self._normalize_swing_state(state.get("swing_vertical"))
         self._last_swing_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
 
+    async def _async_send_precomputed_state(self, state: dict[str, Any]) -> None:
+        """Resolve and send a pre-generated native Tuya base64 command."""
+        pack = self._command_pack
+        if pack is None:
+            raise LearnedCodeNotAvailable("Tuya native command pack is not loaded")
+
+        hvac_mode = str(state.get("hvac_mode", "off")).lower()
+        wants_power = hvac_mode != "off" and bool(state.get("power", True))
+        previously_off = bool(state.get("previously_off", self._last_known_power is not True))
+        fan_mode = str(state.get("fan_mode", "auto") or "auto").lower()
+        temperature = self._state_temperature(state)
+
+        raw_command = pack.resolve(
+            hvac_mode,
+            temperature,
+            fan_mode,
+            False,
+            previously_off=previously_off,
+        )
+        if raw_command is None:
+            err = LearnedCodeNotAvailable(
+                f"No pre-generated Tuya code for mode={hvac_mode}, temp={temperature}, fan={fan_mode}"
+            )
+            _LOGGER.warning("TuyaIRManager: no pre-generated code for state=%s - %s", state, err)
+            await self._async_notify_missing_code(state, err)
+            raise err
+
+        swing_command: str | None = None
+        desired_vertical = self._normalize_swing_state(state.get("swing_vertical"))
+        if wants_power and self._should_send_swing_toggle(desired_vertical):
+            swing_command = pack.resolve_swing_toggle()
+
+        main_signature = self._main_state_signature(state, wants_power=wants_power)
+        main_unchanged = main_signature == self._last_main_state_signature
+
+        if main_unchanged and swing_command:
+            _LOGGER.debug("TuyaIRManager: skipping native b64 main command for swing-only state=%s", state)
+        else:
+            payload_hash = hashlib.sha256(raw_command.encode("ascii", errors="replace")).hexdigest()[:12]
+            _LOGGER.info(
+                "TuyaIRManager: sending native b64 state=%s via %s payload_sha12=%s previously_off=%s",
+                state,
+                self._remote_entity_id,
+                payload_hash,
+                previously_off,
+            )
+            await self._async_send_native_b64_command(raw_command)
+
+        if swing_command:
+            await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
+            _LOGGER.info(
+                "TuyaIRManager: sending native b64 swing toggle via %s",
+                self._remote_entity_id,
+            )
+            await self._async_send_native_b64_command(swing_command)
+
+        self._last_known_power = wants_power
+        self._last_main_state_signature = main_signature
+        self._last_swing_vertical = desired_vertical
+        self._last_swing_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
+
+    @staticmethod
+    def _state_temperature(state: dict[str, Any]) -> int | None:
+        """Return an integer target temperature when present."""
+        if state.get("target_temperature") is None:
+            return None
+        try:
+            return int(round(float(state["target_temperature"])))
+        except (TypeError, ValueError):
+            return None
+
+    def _should_send_swing_toggle(self, desired_vertical: str | None) -> bool:
+        """Return True when a native-b64 pack needs its independent swing toggle."""
+        if desired_vertical is None:
+            return False
+        if desired_vertical not in {"on", "swing"}:
+            return self._last_swing_vertical not in {None, desired_vertical}
+        if self._last_swing_vertical is None:
+            return True
+        return desired_vertical != self._last_swing_vertical
+
     @staticmethod
     def _main_state_signature(state: dict[str, Any], *, wants_power: bool) -> tuple[object, ...]:
         """Return the part of state represented by the full AC IR command."""
@@ -134,6 +242,19 @@ class TuyaIRManager:
         if value is None:
             return None
         return str(value).strip().lower().replace(" ", "_").replace("-", "_")
+
+    async def _async_send_native_b64_command(self, command_b64: str) -> None:
+        """Send one pre-generated Tuya base64 command with the required b64 prefix."""
+        command = command_b64 if command_b64.startswith("b64:") else f"b64:{command_b64}"
+        await self._hass.services.async_call(
+            "remote",
+            "send_command",
+            {
+                "entity_id": self._remote_entity_id,
+                "command": command,
+            },
+            blocking=False,
+        )
 
     async def _async_send_raw_command(self, raw_command: str) -> None:
         """Send one learned raw command through the configured remote entity.
@@ -218,6 +339,9 @@ class TuyaIRManager:
             _LOGGER.warning("TuyaIRManager: remote entity %s is %s", self._remote_entity_id, state.state)
             return False
 
+        if self._uses_native_b64_pack():
+            return True
+
         self._ensure_codes_loaded()
         if not self._learned_codes:
             _LOGGER.warning("TuyaIRManager: no learned codes found for device '%s'", self._device_name)
@@ -228,16 +352,30 @@ class TuyaIRManager:
         """Return debug-safe manager details."""
         self._ensure_codes_loaded()
         return {
-            "transport": "tuya_ir_learned_codes",
+            "transport": "tuya_ir_native_b64" if self._uses_native_b64_pack() else "tuya_ir_learned_codes",
             "remote_entity": self._remote_entity_id,
             "device_name": self._device_name,
-            "coverage": get_coverage_summary(self._learned_codes),
+            "pack_id": self._pack_id or "",
+            "coverage": (
+                {
+                    "pack_id": getattr(self._command_pack, "pack_id", ""),
+                    "total_codes": len(getattr(self._command_pack, "commands", []) or []),
+                    "requires_learning": False,
+                }
+                if self._uses_native_b64_pack()
+                else get_coverage_summary(self._learned_codes)
+            ),
         }
 
 
 def create_tuya_ir_manager_from_entry(hass, entry) -> TuyaIRManager:
     """Build TuyaIRManager from config entry."""
-    from ..const import CONF_TUYA_DEVICE_NAME, CONF_TUYA_IR_ENTITY, DEFAULT_TUYA_DEVICE_NAME
+    from ..const import (
+        CONF_TUYA_DEVICE_NAME,
+        CONF_TUYA_IR_ENTITY,
+        CONF_TUYA_MODEL_PACK,
+        DEFAULT_TUYA_DEVICE_NAME,
+    )
 
     def _opt(key, default=None):
         return entry.options.get(key, entry.data.get(key, default))
@@ -246,6 +384,7 @@ def create_tuya_ir_manager_from_entry(hass, entry) -> TuyaIRManager:
         hass=hass,
         remote_entity_id=_opt(CONF_TUYA_IR_ENTITY),
         device_name=_opt(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
+        pack_id=_opt(CONF_TUYA_MODEL_PACK),
     )
 
 

@@ -17,10 +17,11 @@
       },
       "tuya_device": {
         "title": "Tuya IR Setup",
-        "description": "Select the Tuya IR remote that will send commands and the AeroState raw-code source.\n\n{code_source_hint}",
+        "description": "Select the Tuya IR remote and command pack. Learned/raw packs can also use an AeroState raw-code source.\n\n{code_source_hint}",
         "data": {
           "tuya_ir_entity": "Tuya IR Remote Entity",
-          "tuya_device_name": "Raw-code source name"
+          "tuya_device_name": "Raw-code source name",
+          "tuya_model_pack": "Tuya IR command pack"
         }
       },
       "tuya_confirm": {

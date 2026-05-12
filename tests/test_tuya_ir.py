@@ -8,9 +8,10 @@ import pytest
 
 pytest.importorskip("homeassistant")
 
+from custom_components.aerostate.packs.tuya.lg_akb75415308_tuya_codes import CODES
+from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
 from custom_components.aerostate.providers.ir_types import IRCommand
 from custom_components.aerostate.providers.tuya_ir import TuyaIRProvider
-from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
 
 
 def test_normalize_hex_strips_non_hex_and_requires_even_length() -> None:
@@ -71,3 +72,20 @@ def test_tuya_pack_has_complete_lg_placeholder_matrix() -> None:
     assert "auto_30_auto_swing_on" in labels
     assert {"turbo_on", "turbo_off", "sleep_on", "sleep_off", "eco_on", "eco_off"} <= labels
 
+
+def test_akb75415308_tuya_pack_has_generated_native_b64_matrix() -> None:
+    pack = get_tuya_pack("lg.akb75415308.tuya.protocol.v1")
+    model_pack = pack.to_model_pack()
+
+    assert pack.native_base64 is True
+    assert pack.requires_learned_codes is False
+    assert len(CODES) == 472
+    assert len(pack.commands) == 472
+    assert model_pack.transport == "tuya_remote"
+    assert model_pack.capabilities.hvac_modes == ["cool", "heat", "dry", "fan_only", "auto"]
+    assert model_pack.capabilities.fan_modes == ["auto", "low", "mid", "high", "highest"]
+    assert model_pack.capabilities.swing_vertical_modes == ["off", "on"]
+    assert pack.resolve("cool", 24, "auto", False, previously_off=True) == CODES["cool_on_t24_fauto"]
+    assert pack.resolve("cool", 24, "auto", False, previously_off=False) == CODES["cool_t24_fauto"]
+    assert pack.resolve("fan_only", 24, "high", False, previously_off=True) == CODES["fan_on_fhigh"]
+    assert pack.resolve_swing_toggle() == CODES["swing_toggle"]

@@ -111,7 +111,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(value=IR_PROVIDER_BROADLINK, label="Broadlink IR (default)"),
-                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR learned/raw codes"),
+                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR pre-generated/learned codes"),
                             selector.SelectOptionDict(value=IR_PROVIDER_TUYA_CLOUD, label="Tuya Cloud code library (Daikin)"),
                         ],
                         mode="list",
@@ -257,7 +257,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.FlowResult:
         """Collect Tuya IR blaster connection details."""
-        from .packs.tuya.registry import get_tuya_pack_options_for_ui
+        from .packs.tuya.registry import get_tuya_pack, get_tuya_pack_options_for_ui
         from .providers.learned_code_resolver import get_coverage_summary
         from .providers.localtuya_rc_storage import list_available_code_sources, read_learned_codes
 
@@ -281,17 +281,27 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_TUYA_DEVICE_NAME, default=default_code_source): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
                 ),
+                vol.Required(CONF_TUYA_MODEL_PACK, default=default_pack): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=tuya_pack_options),
+                ),
             },
         )
 
         if user_input is not None:
             remote_entity = user_input.get(CONF_TUYA_IR_ENTITY)
+            selected_pack_id = str(user_input.get(CONF_TUYA_MODEL_PACK, default_pack)).strip()
+            try:
+                selected_pack = get_tuya_pack(selected_pack_id)
+            except Exception:
+                selected_pack = None
+                errors["base"] = "tuya_pack_not_found"
+
             state = self.hass.states.get(remote_entity)
-            if state is None:
+            if state is None and not errors:
                 errors["base"] = "tuya_remote_entity_not_found"
-            elif state.state in ("unavailable", "unknown"):
+            elif state is not None and state.state in ("unavailable", "unknown") and not errors:
                 errors["base"] = "tuya_remote_entity_unavailable"
-            else:
+            elif selected_pack is not None and getattr(selected_pack, "requires_learned_codes", True):
                 device_name = str(user_input.get(CONF_TUYA_DEVICE_NAME, "")).strip()
                 codes = read_learned_codes(self.hass, device_name)
                 if not codes:
@@ -301,13 +311,15 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     self._tuya_setup_warning = ""
                     get_coverage_summary(codes)
+            elif selected_pack is not None:
+                self._tuya_setup_warning = "Pre-generated Tuya code pack selected. No learning required."
 
             if not errors:
                 self._tuya_data = dict(user_input)
                 self._tuya_data[CONF_TUYA_DEVICE_NAME] = str(
                     self._tuya_data.get(CONF_TUYA_DEVICE_NAME, default_code_source),
                 ).strip()
-                self._tuya_data[CONF_TUYA_MODEL_PACK] = default_pack
+                self._tuya_data[CONF_TUYA_MODEL_PACK] = selected_pack_id
                 self._selected_ir_provider = IR_PROVIDER_TUYA
                 return await self.async_step_tuya_confirm()
 
@@ -332,16 +344,23 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.FlowResult:
         """Confirm Tuya setup and create the entry."""
+        from .packs.tuya.registry import get_tuya_pack
         from .providers.learned_code_resolver import get_coverage_summary
         from .providers.localtuya_rc_storage import read_learned_codes
+
+        pack_id = str(self._tuya_data.get(CONF_TUYA_MODEL_PACK, "")).strip()
+        try:
+            selected_pack = get_tuya_pack(pack_id)
+        except Exception:
+            return self.async_abort(reason="tuya_pack_not_found")
 
         if user_input is not None:
             remote_entity = str(self._tuya_data.get(CONF_TUYA_IR_ENTITY, ""))
             device_name = str(self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME))
-            unique_id = f"tuya::{remote_entity}::{device_name or 'auto'}"
+            unique_id = f"tuya::{remote_entity}::{pack_id or device_name or 'auto'}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
-            title_suffix = device_name or remote_entity or "auto"
+            title_suffix = selected_pack.models[0] if selected_pack.models else (device_name or remote_entity or "auto")
             return self.async_create_entry(
                 title=f"AeroState Tuya IR - {title_suffix}",
                 data={
@@ -351,6 +370,29 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         device_name = str(self._tuya_data.get(CONF_TUYA_DEVICE_NAME, ""))
+        if not getattr(selected_pack, "requires_learned_codes", True):
+            fan_codes = [
+                cmd
+                for cmd in selected_pack.commands
+                if cmd.hvac_mode == "fan_only" and not cmd.turn_on_variant
+            ]
+            return self.async_show_form(
+                step_id="tuya_confirm",
+                data_schema=vol.Schema({}),
+                description_placeholders={
+                    "device_name": selected_pack.models[0] if selected_pack.models else selected_pack.pack_id,
+                    "code_source_status": self._tuya_setup_warning or "Pre-generated pack ready",
+                    "total_codes": str(len(selected_pack.commands)),
+                    "cool_temps_auto": f"{selected_pack.min_temperature}-{selected_pack.max_temperature}",
+                    "cool_temps_fan": f"{selected_pack.min_temperature}-{selected_pack.max_temperature}",
+                    "fan_codes": str(len(fan_codes)),
+                    "has_power_off": "Yes",
+                    "heat_supported": "Yes",
+                    "dry_supported": "Yes",
+                    "gaps": "none",
+                },
+            )
+
         codes = read_learned_codes(self.hass, device_name)
         coverage = get_coverage_summary(codes)
         gaps = coverage["gaps"]

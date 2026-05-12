@@ -19,6 +19,7 @@ def _ensure_builtin_packs() -> None:
         return
     _BUILTINS_IMPORTED = True
     import_module(".lg_pc09sq_nsj_tuya_v1", __package__)
+    import_module(".lg_akb75415308_tuya_protocol_v1", __package__)
 
 
 def register_tuya_pack(pack: "TuyaIRPack") -> None:
@@ -46,4 +47,3 @@ def get_tuya_pack_options_for_ui() -> list[dict]:
         {"value": p.pack_id, "label": f"{p.models[0] if p.models else p.pack_id} ({p.pack_id})"}
         for p in list_tuya_packs()
     ]
-

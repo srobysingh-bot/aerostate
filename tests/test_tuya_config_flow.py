@@ -169,6 +169,7 @@ def test_tuya_device_step_has_human_readable_labels() -> None:
     expected = {
         CONF_TUYA_IR_ENTITY,
         CONF_TUYA_DEVICE_NAME,
+        CONF_TUYA_MODEL_PACK,
     }
 
     assert set(labels) == expected
@@ -235,6 +236,27 @@ async def test_tuya_device_step_allows_pending_entry_when_no_codes_exist(tmp_pat
     assert result["step_id"] == "tuya_confirm"
     assert result["description_placeholders"]["total_codes"] == "0"
     assert "No raw-code source found yet" in result["description_placeholders"]["code_source_status"]
+
+
+@pytest.mark.asyncio
+async def test_tuya_device_step_accepts_generated_pack_without_learned_codes(tmp_path) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path, device_codes={})
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "lg.akb75415308.tuya.protocol.v1",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tuya_confirm"
+    assert result["description_placeholders"]["total_codes"] == "472"
+    assert "No learning required" in result["description_placeholders"]["code_source_status"]
+    assert result["description_placeholders"]["heat_supported"] == "Yes"
+    assert result["description_placeholders"]["dry_supported"] == "Yes"
 
 
 @pytest.mark.asyncio

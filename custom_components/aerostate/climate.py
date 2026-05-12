@@ -84,6 +84,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         self._engine = engine
         self._tuya_ir_manager: Any | None = None
         self._last_requested_hvac_mode: HVACMode = HVACMode.COOL
+        self._was_off: bool = True
 
         # State tracking
         self._attr_hvac_mode = HVACMode.OFF
@@ -159,6 +160,15 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         """Expose simple Tuya swing controls when independent learned codes exist."""
         if self._configured_ir_provider() != IR_PROVIDER_TUYA:
             return
+
+        try:
+            from .packs.tuya.registry import get_tuya_pack
+
+            tuya_pack_id = self._entry_value(CONF_TUYA_MODEL_PACK)
+            if tuya_pack_id and not getattr(get_tuya_pack(str(tuya_pack_id)), "requires_learned_codes", True):
+                return
+        except Exception:
+            pass
 
         try:
             from .providers.localtuya_rc_storage import read_learned_codes
@@ -352,6 +362,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 if inferred_mode is not None:
                     self._attr_hvac_mode = inferred_mode
 
+        self._was_off = self._attr_hvac_mode == HVACMode.OFF
         self.async_write_ha_state()
 
     @property
@@ -741,6 +752,13 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         if isinstance(preset_mode, str) and preset_mode in self._supported_preset_modes:
             self._attr_preset_mode = preset_mode
 
+    def _mark_power_tracking_from_state(self, state_dict: dict[str, Any]) -> None:
+        """Update previous-off tracking after a command is accepted for sending."""
+        self._was_off = bool(
+            state_dict.get("power") is False
+            or str(state_dict.get("hvac_mode", "off")).lower() == HVACMode.OFF.value
+        )
+
     def _schedule_state_apply(self) -> None:
         """Coalesce rapid UI mutations and enqueue only latest desired state."""
         self._pending_state = self._build_state_dict()
@@ -782,8 +800,11 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             _LOGGER.debug("Applying state: %s", state_dict)
             if self._configured_ir_provider() in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}:
                 tuya_manager = self._get_tuya_ir_manager()
-                await tuya_manager.async_send_climate_state(state_dict)
+                tuya_state = dict(state_dict)
+                tuya_state["previously_off"] = self._was_off
+                await tuya_manager.async_send_climate_state(tuya_state)
                 self._last_sent_state = dict(state_dict)
+                self._mark_power_tracking_from_state(state_dict)
                 self._last_send_error = None
                 async_clear_command_failure(self._hass, self._entry)
                 self._sync_hvac_from_power_sensor()
@@ -806,6 +827,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             await self._ir_manager.async_send_commands(ir_commands)
 
             self._last_sent_state = dict(state_dict)
+            self._mark_power_tracking_from_state(state_dict)
             self._last_sent_payload_hash = payload_hash
             self._last_send_error = None
 
@@ -847,6 +869,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                     # instead of snapping the UI back to Off; missing-code
                     # errors still roll back because no command existed.
                     self._last_sent_state = dict(state_dict)
+                    self._mark_power_tracking_from_state(state_dict)
                     self.async_write_ha_state()
                     return
             else:
@@ -917,36 +940,7 @@ async def async_setup_entry(
                 _LOGGER.error("Tuya IR pack '%s' not found in registry.", tuya_pack_id)
                 return False
 
-            lg_pack_id = entry.data.get(CONF_MODEL_PACK) or entry.options.get(CONF_MODEL_PACK)
-            pack = None
-            if lg_pack_id:
-                try:
-                    pack = registry.get(lg_pack_id)
-                except KeyError:
-                    _LOGGER.warning("Configured capability pack '%s' not found; falling back by Tuya pack metadata.", lg_pack_id)
-            if pack is None:
-                brand_packs = registry.list_brand_packs(tuya_pack.brand)
-                tuya_models = {model.lower() for model in tuya_pack.models}
-                pack = next(
-                    (
-                        candidate
-                        for candidate in brand_packs
-                        if tuya_models
-                        and any(model.lower() in tuya_models for model in candidate.models)
-                    ),
-                    brand_packs[0] if brand_packs else None,
-                )
-            if pack is None:
-                all_packs = registry.list_all()
-                if not all_packs:
-                    _LOGGER.error("No model packs available for climate entity capabilities.")
-                    return False
-                _LOGGER.warning(
-                    "No %s capability packs found for Tuya pack '%s'; using first available pack.",
-                    tuya_pack.brand,
-                    tuya_pack_id,
-                )
-                pack = all_packs[0]
+            pack = tuya_pack.to_model_pack()
             model_pack_id = pack.pack_id
             brand = pack.brand
         else:
