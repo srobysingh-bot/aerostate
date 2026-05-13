@@ -122,6 +122,12 @@ def _build_climate(with_power_sensor: bool = False, hass: _FakeHass | None = Non
     return climate
 
 
+def test_default_target_temperature_prefers_comfortable_24c() -> None:
+    climate = _build_climate()
+
+    assert climate.target_temperature == 24
+
+
 async def _run_restore(climate: AeroStateClimate, stored: _StoredState | None) -> None:
     async def _fake_last_state() -> _StoredState | None:
         return stored
@@ -197,7 +203,7 @@ async def test_restore_ignores_unsupported_values_safely() -> None:
     )
 
     assert climate.hvac_mode == HVACMode.COOL
-    assert climate.target_temperature == 18
+    assert climate.target_temperature == 24
     assert climate.fan_mode == default_fan
     assert climate.swing_mode == default_swing
     assert climate.swing_horizontal_mode == default_swing_horizontal

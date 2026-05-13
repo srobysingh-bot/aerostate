@@ -15,6 +15,11 @@ from .learned_code_resolver import (
 )
 from .localtuya_rc_storage import find_localtuya_command_device, read_learned_codes
 
+try:
+    from ..packs.tuya.registry import get_tuya_pack as _get_tuya_pack
+except Exception:
+    _get_tuya_pack = None
+
 _LOGGER = logging.getLogger(__name__)
 
 POWER_ON_SETTLE_SECONDS = 0.8
@@ -51,10 +56,11 @@ class TuyaIRManager:
         """Load a registered Tuya command pack when one was selected."""
         if not isinstance(pack_id, str) or not pack_id.strip():
             return None
+        if _get_tuya_pack is None:
+            _LOGGER.warning("TuyaIRManager: Tuya pack registry not available")
+            return None
         try:
-            from ..packs.tuya.registry import get_tuya_pack
-
-            return get_tuya_pack(pack_id.strip())
+            return _get_tuya_pack(pack_id.strip())
         except Exception as err:
             _LOGGER.warning("TuyaIRManager: could not load Tuya pack '%s': %s", pack_id, err)
             return None

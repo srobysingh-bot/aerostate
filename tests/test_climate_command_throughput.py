@@ -89,6 +89,17 @@ class _MissingCodeTuyaManager:
         raise LearnedCodeNotAvailable("No cool codes found")
 
 
+class _RecordingTuyaManager:
+    def __init__(self, send_delay: float = 0.0) -> None:
+        self.send_delay = send_delay
+        self.states: list[dict] = []
+
+    async def async_send_climate_state(self, state):  # noqa: ANN001
+        self.states.append(dict(state))
+        if self.send_delay:
+            await asyncio.sleep(self.send_delay)
+
+
 def _pack() -> ModelPack:
     return ModelPack(
         pack_id="lg.protocol.test.v1",
@@ -321,6 +332,21 @@ async def test_latest_state_wins_while_send_in_flight() -> None:
     assert len(mgr.sent_payloads) == 2
     assert "|t=20|" in mgr.sent_payloads[0]
     assert "|t=23|" in mgr.sent_payloads[1]
+
+
+@pytest.mark.asyncio
+async def test_tuya_duplicate_pending_state_during_send_is_discarded() -> None:
+    climate, _mgr = _build_climate(entry=_tuya_entry())
+    climate._command_debounce_seconds = 0.0
+    tuya_manager = _RecordingTuyaManager(send_delay=0.05)
+    climate._tuya_ir_manager = tuya_manager
+
+    await climate.async_set_hvac_mode(HVACMode.COOL)
+    await asyncio.sleep(0.01)
+    await climate.async_set_hvac_mode(HVACMode.COOL)
+    await asyncio.sleep(0.12)
+
+    assert len(tuya_manager.states) == 1
 
 
 @pytest.mark.asyncio

@@ -58,7 +58,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_max_temp = 30
     _attr_min_temp = 16
-    _command_debounce_seconds = 0.45
+    _command_debounce_seconds = 1.2
 
     def __init__(
         self,
@@ -88,7 +88,10 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
 
         # State tracking
         self._attr_hvac_mode = HVACMode.OFF
-        self._attr_target_temperature = float(pack.min_temperature)
+        self._attr_target_temperature = max(
+            float(pack.min_temperature),
+            min(float(pack.max_temperature), 24.0),
+        )
         self._attr_fan_mode = (
             pack.capabilities.fan_modes[0] if pack.capabilities.fan_modes else None
         )
@@ -135,7 +138,9 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         if self._supported_temperatures:
             self._attr_min_temp = float(min(self._supported_temperatures))
             self._attr_max_temp = float(max(self._supported_temperatures))
-            self._attr_target_temperature = float(min(self._supported_temperatures))
+            self._attr_target_temperature = 24.0 if 24 in self._supported_temperatures else float(
+                min(self._supported_temperatures)
+            )
 
         # Latest-wins command pipeline state.
         self._pending_state: dict[str, Any] | None = None
@@ -787,6 +792,9 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 state_dict = self._pending_state
                 self._pending_state = None
                 await self._send_state_if_needed(state_dict)
+                if self._pending_state is not None and self._pending_state == self._last_sent_state:
+                    _LOGGER.debug("Discarding duplicate pending state after command send")
+                    self._pending_state = None
         finally:
             self._send_worker_task = None
 
@@ -796,6 +804,15 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             if state_dict == self._last_sent_state:
                 _LOGGER.debug("Skipping command send; desired state unchanged")
                 return
+
+            if self._configured_ir_provider() == IR_PROVIDER_TUYA:
+                comparable_last = dict(self._last_sent_state or {})
+                comparable_new = dict(state_dict)
+                comparable_last.pop("previously_off", None)
+                comparable_new.pop("previously_off", None)
+                if comparable_new == comparable_last:
+                    _LOGGER.debug("Skipping Tuya send; desired state unchanged")
+                    return
 
             _LOGGER.debug("Applying state: %s", state_dict)
             if self._configured_ir_provider() in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}:
