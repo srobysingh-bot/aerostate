@@ -667,8 +667,8 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
     hass.services.async_call.assert_awaited_once_with(
         "remote",
         "send_command",
-        {"entity_id": "remote.test_ir", "command": "raw:off"},
-        blocking=False,
+        {"entity_id": "remote.test_ir", "command": "raw:off", "num_repeats": 1, "delay_secs": 0.4},
+        blocking=True,
     )
 
 
@@ -709,16 +709,75 @@ async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monk
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         CODES["power_on"],
-        CODES["temp_24"],
-        CODES["fan_speed_1"],
-        CODES["temp_26"],
+        CODES["cool_t24"],
+        CODES["fan_low"],
+        CODES["cool_t26"],
     ]
     assert [call.kwargs["blocking"] for call in hass.services.async_call.await_args_list] == [
-        False,
-        False,
-        False,
-        False,
+        True,
+        True,
+        True,
+        True,
     ]
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_stateful_pack_sends_extended_modes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.STATEFUL_COMMAND_GAP_SECONDS", 0)
+    hass = SimpleNamespace(
+        config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
+        services=SimpleNamespace(async_call=AsyncMock()),
+        states=SimpleNamespace(get=lambda _entity_id: MagicMock(state="on")),
+    )
+    manager = TuyaIRManager(
+        hass,
+        "remote.test_ir",
+        "Living AC IR",
+        pack_id="lg.akb75415308.localtuya_rc.protocol.v1",
+    )
+    manager._last_known_power = True
+
+    await manager.async_send_climate_state(
+        {"power": True, "hvac_mode": "heat", "target_temperature": 24, "fan_mode": "mid_high"},
+    )
+    await manager.async_send_climate_state(
+        {"power": True, "hvac_mode": "dry", "target_temperature": 22, "fan_mode": "high"},
+    )
+    await manager.async_send_climate_state(
+        {"power": True, "hvac_mode": "fan_only", "fan_mode": "low"},
+    )
+
+    assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        CODES["heat_t24"],
+        CODES["fan_mid_high"],
+        CODES["dry_t22"],
+        CODES["fan_high"],
+        CODES["fan_only_t25"],
+        CODES["fan_low"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_retries_when_remote_recovers(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.REMOTE_RETRY_SECONDS", 0)
+    states = iter([MagicMock(state="unavailable"), MagicMock(state="on")])
+    hass = SimpleNamespace(
+        config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
+        services=SimpleNamespace(async_call=AsyncMock()),
+        states=SimpleNamespace(get=lambda _entity_id: next(states)),
+    )
+    manager = TuyaIRManager(
+        hass,
+        "remote.test_ir",
+        "Living AC IR",
+        pack_id="lg.akb75415308.localtuya_rc.protocol.v1",
+    )
+
+    await manager.async_send_climate_state({"power": False, "hvac_mode": "off"})
+
+    hass.services.async_call.assert_awaited_once()
+    assert hass.services.async_call.await_args.args[2]["command"] == CODES["power_off"]
 
 
 @pytest.mark.asyncio

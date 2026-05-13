@@ -14,15 +14,23 @@ PACK_META = {
     "remote_model": "AKB75415308",
     "temp_min": 16,
     "temp_max": 30,
-    "hvac_modes": ["off", "cool"],
-    "fan_modes": ["auto", "low", "mid_low", "mid", "mid_high", "high"],
+    "hvac_modes": ["off", "cool", "heat", "dry", "auto", "fan_only"],
+    "fan_modes": ["low", "mid_low", "mid", "mid_high", "high"],
     "protocol": "stateful",
     "verified": False,
-    "notes": "Stateful protocol. Send temp + fan as separate commands.",
+    "notes": "Stateful protocol. Send power, mode/temp, then fan as separate commands.",
 }
 
 _TEMPS = range(PACK_META["temp_min"], PACK_META["temp_max"] + 1)
+_MODE_KEYS = ("cool", "heat", "dry", "auto", "fan_only")
 _FAN_KEY_TO_MODE = {
+    "fan_low": "low",
+    "fan_mid_low": "mid_low",
+    "fan_mid": "mid",
+    "fan_mid_high": "mid_high",
+    "fan_high": "high",
+}
+_LEGACY_FAN_KEY_TO_MODE = {
     "fan_speed_1": "low",
     "fan_speed_2": "mid_low",
     "fan_speed_3": "mid",
@@ -35,10 +43,28 @@ _COMMANDS = [
     TuyaIRCommand(label="power_off", hvac_mode="off", key1=CODES["power_off"]),
     *[
         TuyaIRCommand(
-            label=f"temp_{temp}",
-            hvac_mode="cool",
+            label=f"{mode}_t{temp}",
+            hvac_mode=mode,
             temperature=temp,
-            fan_mode="auto",
+            key1=CODES[f"{mode}_t{temp}"],
+        )
+        for mode in _MODE_KEYS
+        for temp in _TEMPS
+    ],
+    *[
+        TuyaIRCommand(
+            label=label,
+            hvac_mode="special",
+            fan_mode=fan_mode,
+            key1=CODES[label],
+        )
+        for label, fan_mode in _FAN_KEY_TO_MODE.items()
+    ],
+    *[
+        TuyaIRCommand(
+            label=f"temp_{temp}",
+            hvac_mode="special",
+            temperature=temp,
             key1=CODES[f"temp_{temp}"],
         )
         for temp in _TEMPS
@@ -46,11 +72,11 @@ _COMMANDS = [
     *[
         TuyaIRCommand(
             label=label,
-            hvac_mode="cool",
+            hvac_mode="special",
             fan_mode=fan_mode,
             key1=CODES[label],
         )
-        for label, fan_mode in _FAN_KEY_TO_MODE.items()
+        for label, fan_mode in _LEGACY_FAN_KEY_TO_MODE.items()
     ],
 ]
 

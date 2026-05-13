@@ -2,24 +2,18 @@
 
 from __future__ import annotations
 
-from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .schema import TuyaIRPack
 
 _TUYA_REGISTRY: dict[str, "TuyaIRPack"] = {}
-_BUILTINS_IMPORTED = False
+_BUILTINS_IMPORTED = True
 
 
 def _ensure_builtin_packs() -> None:
-    """Import bundled Tuya packs once so they register themselves."""
-    global _BUILTINS_IMPORTED
-    if _BUILTINS_IMPORTED:
-        return
-    _BUILTINS_IMPORTED = True
-    import_module(".lg_pc09sq_nsj_tuya_v1", __package__)
-    import_module(".lg_akb75415308_tuya_protocol_v1", __package__)
+    """Bundled Tuya packs are imported eagerly at module load."""
+    return
 
 
 def register_tuya_pack(pack: "TuyaIRPack") -> None:
@@ -47,3 +41,7 @@ def get_tuya_pack_options_for_ui() -> list[dict]:
         {"value": p.pack_id, "label": f"{p.models[0] if p.models else p.pack_id} ({p.pack_id})"}
         for p in list_tuya_packs()
     ]
+
+
+from . import lg_pc09sq_nsj_tuya_v1 as _lg_pc09sq_nsj_tuya_v1  # noqa: E402,F401
+from . import lg_akb75415308_tuya_protocol_v1 as _lg_akb75415308_tuya_protocol_v1  # noqa: E402,F401

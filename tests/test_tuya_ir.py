@@ -82,13 +82,19 @@ def test_akb75415308_tuya_pack_has_stateful_localtuya_rc_codes() -> None:
     assert pack.transport == "localtuya_rc"
     assert pack.protocol == "stateful"
     assert len(CODES) == 102
-    assert len(pack.commands) == 22
+    assert len(pack.commands) == 102
     assert model_pack.transport == "localtuya_rc"
-    assert model_pack.capabilities.hvac_modes == ["cool"]
-    assert model_pack.capabilities.fan_modes == ["auto", "low", "mid_low", "mid", "mid_high", "high"]
+    assert model_pack.capabilities.hvac_modes == ["cool", "heat", "dry", "auto", "fan_only"]
+    assert model_pack.capabilities.fan_modes == ["low", "mid_low", "mid", "mid_high", "high"]
     assert model_pack.capabilities.swing_vertical_modes == []
     assert pack.resolve_by_label("power_on") == CODES["power_on"]
     assert pack.resolve_by_label("power_off") == CODES["power_off"]
+    assert pack.resolve_by_label("cool_t24") == CODES["cool_t24"]
+    assert pack.resolve_by_label("heat_t24") == CODES["heat_t24"]
+    assert pack.resolve_by_label("dry_t24") == CODES["dry_t24"]
+    assert pack.resolve_by_label("auto_t24") == CODES["auto_t24"]
+    assert pack.resolve_by_label("fan_only_t25") == CODES["fan_only_t25"]
+    assert pack.resolve_by_label("fan_low") == CODES["fan_low"]
     assert pack.resolve_by_label("temp_24") == CODES["temp_24"]
     assert pack.resolve_by_label("fan_speed_1") == CODES["fan_speed_1"]
     assert CODES["temp_24"] == CODES["cool_t24"]

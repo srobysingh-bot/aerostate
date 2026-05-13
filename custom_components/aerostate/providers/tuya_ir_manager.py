@@ -17,8 +17,9 @@ from .localtuya_rc_storage import find_localtuya_command_device, read_learned_co
 
 _LOGGER = logging.getLogger(__name__)
 
-POWER_ON_SETTLE_SECONDS = 0.5
-STATEFUL_COMMAND_GAP_SECONDS = 0.3
+POWER_ON_SETTLE_SECONDS = 0.8
+STATEFUL_COMMAND_GAP_SECONDS = 0.4
+REMOTE_RETRY_SECONDS = 2.0
 SWING_COMMAND_GAP_SECONDS = 0.35
 
 
@@ -180,10 +181,8 @@ class TuyaIRManager:
             self._last_main_state_signature = self._main_state_signature(state, wants_power=False)
             return
 
-        if hvac_mode != "cool":
-            err = LearnedCodeNotAvailable(f"Stateful pack only supports cool mode, got {hvac_mode}")
-            await self._async_notify_missing_code(state, err)
-            raise err
+        if hvac_mode == "fan":
+            hvac_mode = "fan_only"
 
         if previously_off:
             _LOGGER.info(
@@ -195,9 +194,13 @@ class TuyaIRManager:
 
         temperature = self._state_temperature(state)
         if temperature is None:
-            temperature = int(getattr(pack, "min_temperature", 16))
-        temp_key = f"temp_{temperature}"
-        _LOGGER.debug("TuyaIRManager: sending stateful temperature command %s", temp_key)
+            temperature = 25 if hvac_mode == "fan_only" else 24
+        temperature = max(
+            int(getattr(pack, "min_temperature", 16)),
+            min(int(getattr(pack, "max_temperature", 30)), temperature),
+        )
+        temp_key = f"{hvac_mode}_t{temperature}"
+        _LOGGER.debug("TuyaIRManager: sending stateful mode/temperature command %s", temp_key)
         await self._async_send_raw_command(self._resolve_pack_label(temp_key))
 
         fan_key = self._fan_mode_to_key(str(state.get("fan_mode") or "auto").lower())
@@ -223,11 +226,18 @@ class TuyaIRManager:
     def _fan_mode_to_key(fan_mode: str) -> str | None:
         """Map Home Assistant fan modes to stateful localtuya_rc command labels."""
         mapping = {
-            "low": "fan_speed_1",
-            "mid_low": "fan_speed_2",
-            "mid": "fan_speed_3",
-            "mid_high": "fan_speed_4",
-            "high": "fan_speed_5",
+            "low": "fan_low",
+            "mid_low": "fan_mid_low",
+            "mid": "fan_mid",
+            "medium": "fan_mid",
+            "med": "fan_mid",
+            "mid_high": "fan_mid_high",
+            "high": "fan_high",
+            "f1": "fan_low",
+            "f2": "fan_mid_low",
+            "f3": "fan_mid",
+            "f4": "fan_mid_high",
+            "f5": "fan_high",
             "auto": None,
         }
         return mapping.get(fan_mode)
@@ -344,22 +354,42 @@ class TuyaIRManager:
             blocking=False,
         )
 
+    def _remote_is_unavailable(self) -> bool:
+        """Return True when the configured remote entity cannot send right now."""
+        state = self._hass.states.get(self._remote_entity_id)
+        return state is None or state.state in ("unavailable", "unknown")
+
     async def _async_send_raw_command(self, raw_command: str) -> None:
         """Send one learned raw command through the configured remote entity.
 
-        Local Tuya IR blasters often do not provide a useful acknowledgement
-        after an IR emission. Use a non-blocking service call so AeroState does
-        not roll back a valid desired state just because the MCU never echoes
-        the IR send.
+        Re-check the remote entity immediately before every send. localtuya_rc
+        devices can reconnect after startup, so availability must not be based
+        only on the setup-time transport probe.
         """
+        if self._remote_is_unavailable():
+            _LOGGER.warning(
+                "TuyaIRManager: remote entity %s is unavailable, retrying in %.1fs",
+                self._remote_entity_id,
+                REMOTE_RETRY_SECONDS,
+            )
+            await asyncio.sleep(REMOTE_RETRY_SECONDS)
+            if self._remote_is_unavailable():
+                _LOGGER.error(
+                    "TuyaIRManager: remote entity %s still unavailable, command dropped",
+                    self._remote_entity_id,
+                )
+                raise RuntimeError(f"remote entity {self._remote_entity_id} is unavailable")
+
         await self._hass.services.async_call(
             "remote",
             "send_command",
             {
                 "entity_id": self._remote_entity_id,
                 "command": raw_command,
+                "num_repeats": 1,
+                "delay_secs": 0.4,
             },
-            blocking=False,
+            blocking=True,
         )
 
     async def _async_send_independent_command(self, label: str, raw_command: str) -> None:
