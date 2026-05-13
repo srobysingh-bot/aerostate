@@ -81,7 +81,7 @@ def test_akb75415308_tuya_pack_has_stateful_localtuya_rc_codes() -> None:
     assert pack.requires_learned_codes is False
     assert pack.transport == "localtuya_rc"
     assert pack.protocol == "stateful"
-    assert len(CODES) == 22
+    assert len(CODES) == 102
     assert len(pack.commands) == 22
     assert model_pack.transport == "localtuya_rc"
     assert model_pack.capabilities.hvac_modes == ["cool"]
@@ -91,3 +91,5 @@ def test_akb75415308_tuya_pack_has_stateful_localtuya_rc_codes() -> None:
     assert pack.resolve_by_label("power_off") == CODES["power_off"]
     assert pack.resolve_by_label("temp_24") == CODES["temp_24"]
     assert pack.resolve_by_label("fan_speed_1") == CODES["fan_speed_1"]
+    assert CODES["temp_24"] == CODES["cool_t24"]
+    assert CODES["fan_speed_1"] == CODES["fan_low"]
