@@ -16,6 +16,7 @@ PACK_META = {
     "temp_max": 30,
     "hvac_modes": ["off", "cool", "heat", "dry", "auto", "fan_only"],
     "fan_modes": ["low", "mid_low", "mid", "mid_high", "high"],
+    "swing_modes": ["off", "swing"],
     "protocol": "stateful",
     "verified": False,
     "notes": "Stateful protocol. Send power, mode/temp, then fan as separate commands.",
@@ -41,6 +42,7 @@ _LEGACY_FAN_KEY_TO_MODE = {
 _COMMANDS = [
     TuyaIRCommand(label="power_on", hvac_mode="special", key1=CODES["power_on"]),
     TuyaIRCommand(label="power_off", hvac_mode="off", key1=CODES["power_off"]),
+    TuyaIRCommand(label="swing_toggle", hvac_mode="special", key1=CODES["swing_toggle"]),
     *[
         TuyaIRCommand(
             label=f"{mode}_t{temp}",
@@ -91,6 +93,9 @@ _PACK = TuyaIRPack(
     commands=_COMMANDS,
     native_base64=False,
     requires_learned_codes=False,
+    swing_vertical_modes=PACK_META["swing_modes"],
+    swing_horizontal_modes=[],
+    swing_toggle_label="swing_toggle",
     transport=PACK_META["transport"],
     protocol=PACK_META["protocol"],
 )

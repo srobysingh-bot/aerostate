@@ -34,6 +34,8 @@ class TuyaIRPack:
     commands: list[TuyaIRCommand] = field(default_factory=list)
     native_base64: bool = False
     requires_learned_codes: bool = True
+    swing_vertical_modes: list[str] = field(default_factory=list)
+    swing_horizontal_modes: list[str] = field(default_factory=list)
     swing_toggle_label: str | None = None
     transport: str = "tuya_key1"
     protocol: str = "stateless"
@@ -89,7 +91,9 @@ class TuyaIRPack:
             if cmd.fan_mode and cmd.fan_mode not in fan_modes:
                 fan_modes.append(cmd.fan_mode)
 
-        swing_modes = ["off", "on"] if self.swing_toggle_label or any(cmd.swing_on for cmd in self.commands) else []
+        swing_modes = list(self.swing_vertical_modes)
+        if not swing_modes and (self.swing_toggle_label or any(cmd.swing_on for cmd in self.commands)):
+            swing_modes = ["off", "on"]
         commands_tree: dict[str, object] = {}
 
         for cmd in self.commands:
@@ -131,7 +135,7 @@ class TuyaIRPack:
                 hvac_modes=hvac_modes,
                 fan_modes=fan_modes,
                 swing_vertical_modes=swing_modes,
-                swing_horizontal_modes=[],
+                swing_horizontal_modes=list(self.swing_horizontal_modes),
                 presets=[],
                 preset_modes=[],
             ),

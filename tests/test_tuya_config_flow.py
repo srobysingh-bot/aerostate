@@ -253,7 +253,7 @@ async def test_tuya_device_step_accepts_generated_pack_without_learned_codes(tmp
 
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_confirm"
-    assert result["description_placeholders"]["total_codes"] == "102"
+    assert result["description_placeholders"]["total_codes"] == "103"
     assert "No learning required" in result["description_placeholders"]["code_source_status"]
     assert result["description_placeholders"]["heat_supported"] == "Yes"
     assert result["description_placeholders"]["dry_supported"] == "Yes"

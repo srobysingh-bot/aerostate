@@ -46,6 +46,7 @@ class TuyaIRManager:
         self._learned_codes: dict[str, str] = {}
         self._codes_loaded = False
         self._last_known_power: bool | None = None
+        self._last_sent_fan_mode: str | None = None
         self._last_swing_vertical: str | None = None
         self._last_swing_horizontal: str | None = None
         self._last_main_state_signature: tuple[object, ...] | None = None
@@ -206,18 +207,56 @@ class TuyaIRManager:
             min(int(getattr(pack, "max_temperature", 30)), temperature),
         )
         temp_key = f"{hvac_mode}_t{temperature}"
-        _LOGGER.debug("TuyaIRManager: sending stateful mode/temperature command %s", temp_key)
-        await self._async_send_raw_command(self._resolve_pack_label(temp_key))
+        main_signature = self._stateful_main_state_signature(
+            state,
+            wants_power=True,
+            hvac_mode=hvac_mode,
+            temperature=temperature,
+        )
+        main_changed = previously_off or main_signature != self._last_main_state_signature
 
-        fan_key = self._fan_mode_to_key(str(state.get("fan_mode") or "auto").lower())
-        if fan_key:
+        current_fan = str(state.get("fan_mode") or "auto").lower()
+        fan_key = self._fan_mode_to_key(current_fan)
+        fan_changed = current_fan != self._last_sent_fan_mode or previously_off
+
+        if main_changed:
+            _LOGGER.debug("TuyaIRManager: sending stateful mode/temperature command %s", temp_key)
+            await self._async_send_raw_command(self._resolve_pack_label(temp_key))
+        else:
+            _LOGGER.debug("TuyaIRManager: skipping stateful mode/temperature command; state unchanged")
+
+        if fan_key and fan_changed:
             await asyncio.sleep(STATEFUL_COMMAND_GAP_SECONDS)
-            _LOGGER.debug("TuyaIRManager: sending stateful fan command %s", fan_key)
+            _LOGGER.debug(
+                "TuyaIRManager: sending stateful fan command %s (fan changed: %s -> %s)",
+                fan_key,
+                self._last_sent_fan_mode,
+                current_fan,
+            )
             await self._async_send_raw_command(self._resolve_pack_label(fan_key))
+        elif fan_key:
+            _LOGGER.debug(
+                "TuyaIRManager: skipping stateful fan command %s; fan unchanged at %s",
+                fan_key,
+                current_fan,
+            )
+
+        desired_vertical = self._normalize_swing_state(state.get("swing_vertical"))
+        if self._should_send_swing_toggle(desired_vertical):
+            try:
+                swing_code = self._resolve_pack_label("swing_toggle")
+            except LearnedCodeNotAvailable:
+                _LOGGER.debug("TuyaIRManager: no swing toggle command in stateful pack")
+            else:
+                await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
+                _LOGGER.debug("TuyaIRManager: sending stateful swing toggle command")
+                await self._async_send_raw_command(swing_code)
+                self._last_swing_vertical = desired_vertical
 
         self._last_known_power = True
-        self._last_main_state_signature = self._main_state_signature(state, wants_power=True)
-        self._last_swing_vertical = self._normalize_swing_state(state.get("swing_vertical"))
+        self._last_sent_fan_mode = current_fan
+        self._last_main_state_signature = main_signature
+        self._last_swing_vertical = desired_vertical
         self._last_swing_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
 
     def _resolve_pack_label(self, label: str) -> str:
@@ -337,6 +376,22 @@ class TuyaIRManager:
             str(state.get("hvac_mode", "off")).lower(),
             state.get("target_temperature"),
             state.get("fan_mode"),
+            state.get("preset_mode"),
+        )
+
+    @staticmethod
+    def _stateful_main_state_signature(
+        state: dict[str, Any],
+        *,
+        wants_power: bool,
+        hvac_mode: str,
+        temperature: int,
+    ) -> tuple[object, ...]:
+        """Return the state represented by the stateful mode/temperature IR frame."""
+        return (
+            wants_power,
+            hvac_mode,
+            temperature,
             state.get("preset_mode"),
         )
 
