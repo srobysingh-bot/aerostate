@@ -23,7 +23,6 @@ except Exception:
 _LOGGER = logging.getLogger(__name__)
 
 POWER_ON_SETTLE_SECONDS = 0.8
-STATEFUL_COMMAND_GAP_SECONDS = 0.4
 REMOTE_RETRY_SECONDS = 2.0
 SWING_COMMAND_GAP_SECONDS = 0.35
 
@@ -175,7 +174,7 @@ class TuyaIRManager:
         self._last_swing_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
 
     async def _async_send_stateful_raw_state(self, state: dict[str, Any]) -> None:
-        """Send a stateful localtuya_rc pack as power, temperature, then fan commands."""
+        """Send one combined mode+temperature+fan IR command."""
         pack = self._command_pack
         if pack is None:
             raise LearnedCodeNotAvailable("Stateful Tuya command pack is not loaded")
@@ -196,14 +195,6 @@ class TuyaIRManager:
         if hvac_mode == "fan":
             hvac_mode = "fan_only"
 
-        if previously_off:
-            _LOGGER.info(
-                "TuyaIRManager: waking stateful localtuya_rc AC with power_on via %s",
-                self._remote_entity_id,
-            )
-            await self._async_send_raw_command(self._resolve_pack_label("power_on"))
-            await asyncio.sleep(POWER_ON_SETTLE_SECONDS)
-
         temperature = self._state_temperature(state)
         if temperature is None:
             temperature = 25 if hvac_mode == "fan_only" else 24
@@ -212,43 +203,47 @@ class TuyaIRManager:
             min(int(getattr(pack, "max_temperature", 30)), temperature),
         )
 
-        current_fan = str(state.get("fan_mode") or "auto").lower()
-        fan_key = self._fan_mode_to_key(current_fan)
+        fan_mode = str(state.get("fan_mode") or "auto").lower()
+        fan_norm = {
+            "low": "low",
+            "mid_low": "mid_low",
+            "mid": "mid",
+            "medium": "mid",
+            "med": "mid",
+            "mid_high": "mid_high",
+            "high": "high",
+            "f1": "low",
+            "f2": "mid_low",
+            "f3": "mid",
+            "f4": "mid_high",
+            "f5": "high",
+            "auto": "auto",
+        }.get(fan_mode, "auto")
 
-        mode_changed = hvac_mode != self._last_sent_hvac_mode
-        temp_changed = temperature != self._last_sent_temperature
-        fan_changed = current_fan != self._last_sent_fan_mode
+        combined_key = f"{hvac_mode}_t{temperature}_f{fan_norm}"
+        state_unchanged = (
+            hvac_mode == self._last_sent_hvac_mode
+            and temperature == self._last_sent_temperature
+            and fan_norm == self._last_sent_fan_mode
+            and not previously_off
+        )
 
-        if previously_off:
-            # Powering on: send mode+temp first, then fan.
-            temp_key = f"{hvac_mode}_t{temperature}"
-            _LOGGER.debug("TuyaIRManager: power-on send mode/temp %s", temp_key)
-            await self._async_send_raw_command(self._resolve_pack_label(temp_key))
-            if fan_key:
-                await asyncio.sleep(STATEFUL_COMMAND_GAP_SECONDS)
-                _LOGGER.debug("TuyaIRManager: power-on send fan %s", fan_key)
-                await self._async_send_raw_command(self._resolve_pack_label(fan_key))
-
-        elif fan_changed and not mode_changed and not temp_changed:
-            # Only fan changed. Do not send a temp frame; LG will reset the setpoint.
-            if fan_key:
-                _LOGGER.debug("TuyaIRManager: fan-only send %s", fan_key)
-                await self._async_send_raw_command(self._resolve_pack_label(fan_key))
-            else:
-                _LOGGER.debug("TuyaIRManager: fan mode 'auto' - no fan command needed")
-
-        elif mode_changed or temp_changed:
-            # Mode or temp changed. Do not send a fan frame after it.
-            temp_key = f"{hvac_mode}_t{temperature}"
-            _LOGGER.debug("TuyaIRManager: mode/temp send %s", temp_key)
-            await self._async_send_raw_command(self._resolve_pack_label(temp_key))
-
+        if state_unchanged:
+            _LOGGER.debug("TuyaIRManager: stateful state unchanged, skipping main send")
         else:
-            _LOGGER.debug("TuyaIRManager: stateful state unchanged, skipping send")
+            if previously_off:
+                _LOGGER.info("TuyaIRManager: sending power_on via %s", self._remote_entity_id)
+                await self._async_send_raw_command(self._resolve_pack_label("power_on"))
+                await asyncio.sleep(POWER_ON_SETTLE_SECONDS)
 
-        self._last_sent_hvac_mode = hvac_mode
-        self._last_sent_temperature = temperature
-        self._last_sent_fan_mode = current_fan
+            _LOGGER.debug("TuyaIRManager: sending combined command %s", combined_key)
+            await self._async_send_raw_command(self._resolve_pack_label(combined_key))
+
+            self._last_known_power = True
+            self._last_sent_hvac_mode = hvac_mode
+            self._last_sent_temperature = temperature
+            self._last_sent_fan_mode = fan_norm
+            self._last_main_state_signature = self._main_state_signature(state, wants_power=True)
 
         desired_vertical = self._normalize_swing_state(state.get("swing_vertical"))
         desired_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
@@ -257,11 +252,11 @@ class TuyaIRManager:
             try:
                 v_code = self._resolve_pack_label("swing_vertical_toggle")
             except LearnedCodeNotAvailable:
-                _LOGGER.debug("TuyaIRManager: no vertical swing toggle in pack")
+                _LOGGER.debug("TuyaIRManager: no swing_vertical_toggle in pack")
             else:
                 await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
                 _LOGGER.debug(
-                    "TuyaIRManager: sending vertical swing toggle (%s -> %s)",
+                    "TuyaIRManager: swing_vertical toggle %s -> %s",
                     self._last_swing_vertical,
                     desired_vertical,
                 )
@@ -272,24 +267,16 @@ class TuyaIRManager:
             try:
                 h_code = self._resolve_pack_label("swing_horizontal_toggle")
             except LearnedCodeNotAvailable:
-                _LOGGER.debug("TuyaIRManager: no horizontal swing toggle in pack")
+                _LOGGER.debug("TuyaIRManager: no swing_horizontal_toggle in pack")
             else:
                 await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
                 _LOGGER.debug(
-                    "TuyaIRManager: sending horizontal swing toggle (%s -> %s)",
+                    "TuyaIRManager: swing_horizontal toggle %s -> %s",
                     self._last_swing_horizontal,
                     desired_horizontal,
                 )
                 await self._async_send_raw_command(h_code)
                 self._last_swing_horizontal = desired_horizontal
-
-        self._last_known_power = True
-        self._last_main_state_signature = self._stateful_main_state_signature(
-            state,
-            wants_power=True,
-            hvac_mode=hvac_mode,
-            temperature=temperature,
-        )
 
     def _resolve_pack_label(self, label: str) -> str:
         """Return a selected-pack command payload by label."""
@@ -298,26 +285,6 @@ class TuyaIRManager:
         if code:
             return code
         raise LearnedCodeNotAvailable(f"Selected Tuya pack does not contain command '{label}'")
-
-    @staticmethod
-    def _fan_mode_to_key(fan_mode: str) -> str | None:
-        """Map Home Assistant fan modes to stateful localtuya_rc command labels."""
-        mapping = {
-            "low": "fan_low",
-            "mid_low": "fan_mid_low",
-            "mid": "fan_mid",
-            "medium": "fan_mid",
-            "med": "fan_mid",
-            "mid_high": "fan_mid_high",
-            "high": "fan_high",
-            "f1": "fan_low",
-            "f2": "fan_mid_low",
-            "f3": "fan_mid",
-            "f4": "fan_mid_high",
-            "f5": "fan_high",
-            "auto": None,
-        }
-        return mapping.get(fan_mode)
 
     async def _async_send_precomputed_state(self, state: dict[str, Any]) -> None:
         """Resolve and send a pre-generated native Tuya base64 command."""
@@ -408,22 +375,6 @@ class TuyaIRManager:
             str(state.get("hvac_mode", "off")).lower(),
             state.get("target_temperature"),
             state.get("fan_mode"),
-            state.get("preset_mode"),
-        )
-
-    @staticmethod
-    def _stateful_main_state_signature(
-        state: dict[str, Any],
-        *,
-        wants_power: bool,
-        hvac_mode: str,
-        temperature: int,
-    ) -> tuple[object, ...]:
-        """Return the state represented by the stateful mode/temperature IR frame."""
-        return (
-            wants_power,
-            hvac_mode,
-            temperature,
             state.get("preset_mode"),
         )
 

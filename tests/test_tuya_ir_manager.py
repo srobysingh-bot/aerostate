@@ -675,7 +675,6 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
-    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.STATEFUL_COMMAND_GAP_SECONDS", 0)
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
         services=SimpleNamespace(async_call=AsyncMock()),
@@ -709,12 +708,10 @@ async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monk
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         CODES["power_on"],
-        CODES["cool_t24"],
-        CODES["fan_low"],
-        CODES["cool_t26"],
+        CODES["cool_t24_flow"],
+        CODES["cool_t26_fauto"],
     ]
     assert [call.kwargs["blocking"] for call in hass.services.async_call.await_args_list] == [
-        True,
         True,
         True,
         True,
@@ -724,7 +721,6 @@ async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monk
 @pytest.mark.asyncio
 async def test_tuya_manager_stateful_pack_sends_only_changed_component(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
-    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.STATEFUL_COMMAND_GAP_SECONDS", 0)
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
         services=SimpleNamespace(async_call=AsyncMock()),
@@ -767,16 +763,14 @@ async def test_tuya_manager_stateful_pack_sends_only_changed_component(tmp_path,
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         CODES["power_on"],
-        CODES["cool_t24"],
-        CODES["fan_mid"],
-        CODES["cool_t25"],
-        CODES["fan_high"],
+        CODES["cool_t24_fmid"],
+        CODES["cool_t25_fmid"],
+        CODES["cool_t25_fhigh"],
     ]
 
 
 @pytest.mark.asyncio
 async def test_tuya_manager_stateful_pack_sends_swing_toggle_only_on_swing_change(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.STATEFUL_COMMAND_GAP_SECONDS", 0)
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.SWING_COMMAND_GAP_SECONDS", 0)
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
@@ -802,18 +796,21 @@ async def test_tuya_manager_stateful_pack_sends_swing_toggle_only_on_swing_chang
     await manager.async_send_climate_state({**base_state, "swing_vertical": "off"})
     await manager.async_send_climate_state({**base_state, "swing_vertical": "swing"})
     await manager.async_send_climate_state({**base_state, "swing_vertical": "off"})
+    await manager.async_send_climate_state({**base_state, "swing_horizontal": "swing"})
+    await manager.async_send_climate_state({**base_state, "swing_horizontal": "off"})
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
-        CODES["cool_t24"],
+        CODES["cool_t24_fauto"],
         CODES["swing_vertical_toggle"],
         CODES["swing_vertical_toggle"],
+        CODES["swing_horizontal_toggle"],
+        CODES["swing_horizontal_toggle"],
     ]
 
 
 @pytest.mark.asyncio
 async def test_tuya_manager_stateful_pack_sends_extended_modes(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
-    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.STATEFUL_COMMAND_GAP_SECONDS", 0)
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
         services=SimpleNamespace(async_call=AsyncMock()),
@@ -838,9 +835,9 @@ async def test_tuya_manager_stateful_pack_sends_extended_modes(tmp_path, monkeyp
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
-        CODES["heat_t24"],
-        CODES["dry_t22"],
-        CODES["fan_only_t25"],
+        CODES["heat_t24_fmid_high"],
+        CODES["dry_t22_fhigh"],
+        CODES["fan_only_t25_flow"],
     ]
 
 

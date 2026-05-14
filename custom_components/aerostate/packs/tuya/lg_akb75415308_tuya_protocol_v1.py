@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .lg_akb75415308_tuya_codes import CODES
+from .lg_akb75415308_localtuya_codes_v2 import CODES
 from .registry import register_tuya_pack
 from .schema import TuyaIRCommand, TuyaIRPack
 
@@ -15,51 +15,32 @@ PACK_META = {
     "temp_min": 16,
     "temp_max": 30,
     "hvac_modes": ["off", "cool", "heat", "dry", "auto", "fan_only"],
-    "fan_modes": ["low", "mid_low", "mid", "mid_high", "high"],
+    "fan_modes": ["auto", "low", "mid_low", "mid", "mid_high", "high"],
     "swing_modes": ["off", "swing"],
     "protocol": "stateful",
     "verified": False,
-    "notes": "Stateful protocol. Send power, mode/temp, then fan as separate commands.",
+    "notes": "Stateful protocol. Send power, then one combined mode/temp/fan command.",
 }
 
-_TEMPS = range(PACK_META["temp_min"], PACK_META["temp_max"] + 1)
-_MODE_KEYS = ("cool", "heat", "dry", "auto", "fan_only")
-_FAN_KEY_TO_MODE = {
-    "fan_low": "low",
-    "fan_mid_low": "mid_low",
-    "fan_mid": "mid",
-    "fan_mid_high": "mid_high",
-    "fan_high": "high",
-}
-_LEGACY_FAN_KEY_TO_MODE = {
-    "fan_speed_1": "low",
-    "fan_speed_2": "mid_low",
-    "fan_speed_3": "mid",
-    "fan_speed_4": "mid_high",
-    "fan_speed_5": "high",
-}
+_MODES = ("cool", "heat", "dry", "auto", "fan_only")
+_FAN_KEYS = ("auto", "low", "mid_low", "mid", "mid_high", "high")
+_TEMPS = range(16, 31)
 
 _COMMANDS = [
     TuyaIRCommand(label="power_on", hvac_mode="special", key1=CODES["power_on"]),
     TuyaIRCommand(label="power_off", hvac_mode="off", key1=CODES["power_off"]),
+    # Combined mode+temp+fan commands
     *[
         TuyaIRCommand(
-            label=f"{mode}_t{temp}",
+            label=f"{mode}_t{temp}_f{fan}",
             hvac_mode=mode,
             temperature=temp,
-            key1=CODES[f"{mode}_t{temp}"],
+            fan_mode=fan,
+            key1=CODES[f"{mode}_t{temp}_f{fan}"],
         )
-        for mode in _MODE_KEYS
+        for mode in _MODES
         for temp in _TEMPS
-    ],
-    *[
-        TuyaIRCommand(
-            label=label,
-            hvac_mode="special",
-            fan_mode=fan_mode,
-            key1=CODES[label],
-        )
-        for label, fan_mode in _FAN_KEY_TO_MODE.items()
+        for fan in _FAN_KEYS
     ],
     TuyaIRCommand(
         label="swing_vertical_toggle",
@@ -71,24 +52,6 @@ _COMMANDS = [
         hvac_mode="special",
         key1=CODES["swing_horizontal_toggle"],
     ),
-    *[
-        TuyaIRCommand(
-            label=f"temp_{temp}",
-            hvac_mode="special",
-            temperature=temp,
-            key1=CODES[f"temp_{temp}"],
-        )
-        for temp in _TEMPS
-    ],
-    *[
-        TuyaIRCommand(
-            label=label,
-            hvac_mode="special",
-            fan_mode=fan_mode,
-            key1=CODES[label],
-        )
-        for label, fan_mode in _LEGACY_FAN_KEY_TO_MODE.items()
-    ],
 ]
 
 _PACK = TuyaIRPack(
