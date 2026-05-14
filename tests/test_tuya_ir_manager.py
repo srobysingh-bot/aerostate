@@ -770,7 +770,7 @@ async def test_tuya_manager_stateful_pack_sends_only_changed_component(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_stateful_pack_sends_swing_toggle_only_on_swing_change(tmp_path, monkeypatch) -> None:
+async def test_tuya_manager_stateful_pack_sends_exact_swing_modes_only_on_swing_change(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.SWING_COMMAND_GAP_SECONDS", 0)
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
@@ -801,10 +801,10 @@ async def test_tuya_manager_stateful_pack_sends_swing_toggle_only_on_swing_chang
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         CODES["cool_t24_fauto"],
-        CODES["swing_vertical_toggle"],
-        CODES["swing_vertical_toggle"],
-        CODES["swing_horizontal_toggle"],
-        CODES["swing_horizontal_toggle"],
+        CODES["swing_vertical_swing"],
+        CODES["swing_vertical_off"],
+        CODES["swing_horizontal_on"],
+        CODES["swing_horizontal_off"],
     ]
 
 

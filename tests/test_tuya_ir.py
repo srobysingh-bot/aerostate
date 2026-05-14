@@ -81,17 +81,36 @@ def test_akb75415308_tuya_pack_has_stateful_localtuya_rc_codes() -> None:
     assert pack.requires_learned_codes is False
     assert pack.transport == "localtuya_rc"
     assert pack.protocol == "stateful"
-    assert len(CODES) == 454
-    assert len(pack.commands) == 454
+    assert len(CODES) == 469
+    assert len(pack.commands) == 469
     assert model_pack.transport == "localtuya_rc"
     assert model_pack.capabilities.hvac_modes == ["cool", "heat", "dry", "auto", "fan_only"]
     assert model_pack.capabilities.fan_modes == ["auto", "low", "mid_low", "mid", "mid_high", "high"]
-    assert model_pack.capabilities.swing_vertical_modes == ["off", "swing"]
-    assert model_pack.capabilities.swing_horizontal_modes == ["off", "swing"]
+    assert model_pack.capabilities.swing_vertical_modes == [
+        "off",
+        "on",
+        "swing",
+        "highest",
+        "high",
+        "middle",
+        "low",
+        "lowest",
+    ]
+    assert model_pack.capabilities.swing_horizontal_modes == [
+        "off",
+        "on",
+        "left_mid",
+        "mid",
+        "right_mid",
+        "right_most",
+        "left_swing",
+        "right_swing",
+        "full_swing",
+    ]
     assert pack.resolve_by_label("power_on") == CODES["power_on"]
     assert pack.resolve_by_label("power_off") == CODES["power_off"]
-    assert pack.resolve_by_label("swing_vertical_toggle") == CODES["swing_vertical_toggle"]
-    assert pack.resolve_by_label("swing_horizontal_toggle") == CODES["swing_horizontal_toggle"]
+    assert pack.resolve_by_label("swing_vertical_middle") == CODES["swing_vertical_middle"]
+    assert pack.resolve_by_label("swing_horizontal_full_swing") == CODES["swing_horizontal_full_swing"]
     assert pack.resolve_by_label("cool_t24_fauto") == CODES["cool_t24_fauto"]
     assert pack.resolve_by_label("cool_t24_flow") == CODES["cool_t24_flow"]
     assert pack.resolve_by_label("heat_t24_fmid_high") == CODES["heat_t24_fmid_high"]

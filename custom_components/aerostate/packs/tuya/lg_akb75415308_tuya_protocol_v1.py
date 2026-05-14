@@ -16,7 +16,18 @@ PACK_META = {
     "temp_max": 30,
     "hvac_modes": ["off", "cool", "heat", "dry", "auto", "fan_only"],
     "fan_modes": ["auto", "low", "mid_low", "mid", "mid_high", "high"],
-    "swing_modes": ["off", "swing"],
+    "swing_vertical_modes": ["off", "on", "swing", "highest", "high", "middle", "low", "lowest"],
+    "swing_horizontal_modes": [
+        "off",
+        "on",
+        "left_mid",
+        "mid",
+        "right_mid",
+        "right_most",
+        "left_swing",
+        "right_swing",
+        "full_swing",
+    ],
     "protocol": "stateful",
     "verified": False,
     "notes": "Stateful protocol. Send power, then one combined mode/temp/fan command.",
@@ -42,16 +53,11 @@ _COMMANDS = [
         for temp in _TEMPS
         for fan in _FAN_KEYS
     ],
-    TuyaIRCommand(
-        label="swing_vertical_toggle",
-        hvac_mode="special",
-        key1=CODES["swing_vertical_toggle"],
-    ),
-    TuyaIRCommand(
-        label="swing_horizontal_toggle",
-        hvac_mode="special",
-        key1=CODES["swing_horizontal_toggle"],
-    ),
+    *[
+        TuyaIRCommand(label=label, hvac_mode="special", key1=CODES[label])
+        for label in CODES
+        if label.startswith(("swing_vertical_", "swing_horizontal_"))
+    ],
 ]
 
 _PACK = TuyaIRPack(
@@ -65,8 +71,8 @@ _PACK = TuyaIRPack(
     commands=_COMMANDS,
     native_base64=False,
     requires_learned_codes=False,
-    swing_vertical_modes=["off", "swing"],
-    swing_horizontal_modes=["off", "swing"],
+    swing_vertical_modes=PACK_META["swing_vertical_modes"],
+    swing_horizontal_modes=PACK_META["swing_horizontal_modes"],
     transport=PACK_META["transport"],
     protocol=PACK_META["protocol"],
 )

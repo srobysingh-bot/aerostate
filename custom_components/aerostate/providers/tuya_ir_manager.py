@@ -248,35 +248,82 @@ class TuyaIRManager:
         desired_vertical = self._normalize_swing_state(state.get("swing_vertical"))
         desired_horizontal = self._normalize_swing_state(state.get("swing_horizontal"))
 
-        if desired_vertical is not None and desired_vertical != self._last_swing_vertical:
+        if self._should_send_stateful_swing(desired_vertical, self._last_swing_vertical):
             try:
-                v_code = self._resolve_pack_label("swing_vertical_toggle")
+                v_label, v_code = self._resolve_pack_swing_command("vertical", desired_vertical)
             except LearnedCodeNotAvailable:
-                _LOGGER.debug("TuyaIRManager: no swing_vertical_toggle in pack")
+                _LOGGER.debug("TuyaIRManager: no stateful vertical swing command for %s", desired_vertical)
             else:
                 await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
                 _LOGGER.debug(
-                    "TuyaIRManager: swing_vertical toggle %s -> %s",
+                    "TuyaIRManager: swing_vertical %s -> %s via %s",
                     self._last_swing_vertical,
                     desired_vertical,
+                    v_label,
                 )
                 await self._async_send_raw_command(v_code)
                 self._last_swing_vertical = desired_vertical
 
-        if desired_horizontal is not None and desired_horizontal != self._last_swing_horizontal:
+        if self._should_send_stateful_swing(desired_horizontal, self._last_swing_horizontal):
             try:
-                h_code = self._resolve_pack_label("swing_horizontal_toggle")
+                h_label, h_code = self._resolve_pack_swing_command("horizontal", desired_horizontal)
             except LearnedCodeNotAvailable:
-                _LOGGER.debug("TuyaIRManager: no swing_horizontal_toggle in pack")
+                _LOGGER.debug("TuyaIRManager: no stateful horizontal swing command for %s", desired_horizontal)
             else:
                 await asyncio.sleep(SWING_COMMAND_GAP_SECONDS)
                 _LOGGER.debug(
-                    "TuyaIRManager: swing_horizontal toggle %s -> %s",
+                    "TuyaIRManager: swing_horizontal %s -> %s via %s",
                     self._last_swing_horizontal,
                     desired_horizontal,
+                    h_label,
                 )
                 await self._async_send_raw_command(h_code)
                 self._last_swing_horizontal = desired_horizontal
+
+    def _should_send_stateful_swing(self, desired: str | None, previous: str | None) -> bool:
+        """Return True when an exact stateful-pack swing command should be sent."""
+        if desired is None or desired == previous:
+            return False
+        if previous is None and desired in {"off", "none", "stop", "stopped", "false", "0"}:
+            return False
+        return True
+
+    def _resolve_pack_swing_command(self, axis: str, mode: str | None) -> tuple[str, str]:
+        """Return the selected-pack command label and payload for one swing axis."""
+        if not mode:
+            raise LearnedCodeNotAvailable("No swing mode requested")
+
+        labels = [f"swing_{axis}_{mode}"]
+        if mode in {"on", "swing", "auto", "start", "true", "1"}:
+            labels.extend(
+                [
+                    f"swing_{axis}_on",
+                    f"swing_{axis}_swing",
+                    f"swing_{axis}_toggle",
+                ]
+            )
+        elif mode in {"off", "none", "stop", "stopped", "false", "0"}:
+            labels.extend(
+                [
+                    f"swing_{axis}_off",
+                    f"swing_{axis}_stop",
+                    f"{axis}_stop",
+                ]
+            )
+
+        if axis == "horizontal" and mode == "middle":
+            labels.insert(0, "swing_horizontal_mid")
+
+        seen: set[str] = set()
+        for label in labels:
+            if label in seen:
+                continue
+            seen.add(label)
+            try:
+                return label, self._resolve_pack_label(label)
+            except LearnedCodeNotAvailable:
+                continue
+        raise LearnedCodeNotAvailable(f"Selected Tuya pack does not contain {axis} swing mode '{mode}'")
 
     def _resolve_pack_label(self, label: str) -> str:
         """Return a selected-pack command payload by label."""
