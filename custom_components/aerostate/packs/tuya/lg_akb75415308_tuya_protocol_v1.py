@@ -42,7 +42,6 @@ _LEGACY_FAN_KEY_TO_MODE = {
 _COMMANDS = [
     TuyaIRCommand(label="power_on", hvac_mode="special", key1=CODES["power_on"]),
     TuyaIRCommand(label="power_off", hvac_mode="off", key1=CODES["power_off"]),
-    TuyaIRCommand(label="swing_toggle", hvac_mode="special", key1=CODES["swing_toggle"]),
     *[
         TuyaIRCommand(
             label=f"{mode}_t{temp}",
@@ -62,6 +61,16 @@ _COMMANDS = [
         )
         for label, fan_mode in _FAN_KEY_TO_MODE.items()
     ],
+    TuyaIRCommand(
+        label="swing_vertical_toggle",
+        hvac_mode="special",
+        key1=CODES["swing_vertical_toggle"],
+    ),
+    TuyaIRCommand(
+        label="swing_horizontal_toggle",
+        hvac_mode="special",
+        key1=CODES["swing_horizontal_toggle"],
+    ),
     *[
         TuyaIRCommand(
             label=f"temp_{temp}",
@@ -93,9 +102,8 @@ _PACK = TuyaIRPack(
     commands=_COMMANDS,
     native_base64=False,
     requires_learned_codes=False,
-    swing_vertical_modes=PACK_META["swing_modes"],
-    swing_horizontal_modes=[],
-    swing_toggle_label="swing_toggle",
+    swing_vertical_modes=["off", "swing"],
+    swing_horizontal_modes=["off", "swing"],
     transport=PACK_META["transport"],
     protocol=PACK_META["protocol"],
 )

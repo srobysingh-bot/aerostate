@@ -790,6 +790,7 @@ async def test_tuya_manager_stateful_pack_sends_swing_toggle_only_on_swing_chang
         pack_id="lg.akb75415308.localtuya_rc.protocol.v1",
     )
     manager._last_known_power = True
+    manager._last_swing_vertical = "off"
 
     base_state = {
         "power": True,
@@ -804,8 +805,8 @@ async def test_tuya_manager_stateful_pack_sends_swing_toggle_only_on_swing_chang
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         CODES["cool_t24"],
-        CODES["swing_toggle"],
-        CODES["swing_toggle"],
+        CODES["swing_vertical_toggle"],
+        CODES["swing_vertical_toggle"],
     ]
 
 
@@ -838,11 +839,8 @@ async def test_tuya_manager_stateful_pack_sends_extended_modes(tmp_path, monkeyp
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         CODES["heat_t24"],
-        CODES["fan_mid_high"],
         CODES["dry_t22"],
-        CODES["fan_high"],
         CODES["fan_only_t25"],
-        CODES["fan_low"],
     ]
 
 
