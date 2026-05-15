@@ -889,6 +889,13 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                     self._mark_power_tracking_from_state(state_dict)
                     self.async_write_ha_state()
                     return
+                if self._configured_ir_provider() == IR_PROVIDER_TUYA_CLOUD:
+                    # Tuya Cloud AC is still an assumed-state IR path. Keep the
+                    # user's requested mode visible, but do not update
+                    # _last_sent_state because the cloud API rejected the send.
+                    async_report_command_failure(self._hass, self._entry)
+                    self.async_write_ha_state()
+                    return
             else:
                 _LOGGER.warning(
                     "AeroState desired state is not yet confirmed on device. desired=%s last_sent=%s",

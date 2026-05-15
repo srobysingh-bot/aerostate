@@ -8,6 +8,9 @@ import pytest
 
 pytest.importorskip("homeassistant")
 
+from homeassistant.components.climate import HVACMode
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.aerostate import climate
 from custom_components.aerostate.const import (
     CONF_BRAND,
@@ -123,6 +126,12 @@ class _TuyaCloudManager:
         return True
 
 
+class _FailingTuyaCloudManager:
+    @staticmethod
+    async def async_send_climate_state(_state) -> None:
+        raise HomeAssistantError("Tuya Cloud API error 28841101: No permissions. This API is not subscribed.")
+
+
 def _hass(entry) -> SimpleNamespace:
     return SimpleNamespace(
         data={DOMAIN: {entry.entry_id: {"registry": _Registry()}}},
@@ -186,6 +195,53 @@ async def test_climate_setup_entry_tuya_cloud_daikin_path_is_isolated(monkeypatc
     assert len(added) == 1
     assert added[0]._pack.brand == "Daikin"
     assert added[0]._pack.transport == "tuya_cloud_ac"
+
+
+@pytest.mark.asyncio
+async def test_tuya_cloud_send_failure_preserves_requested_visible_state(monkeypatch) -> None:
+    entry = SimpleNamespace(
+        entry_id="entry_tuya_cloud",
+        data={
+            CONF_IR_PROVIDER: IR_PROVIDER_TUYA_CLOUD,
+            CONF_TUYA_CLOUD_ENDPOINT: "https://openapi.tuyain.com",
+            CONF_TUYA_CLOUD_ACCESS_ID: "access-id",
+            CONF_TUYA_CLOUD_ACCESS_SECRET: "access-secret",
+            CONF_TUYA_INFRARED_ID: "ir-device-id",
+            CONF_TUYA_REMOTE_ID: "remote-id",
+            CONF_TUYA_CLOUD_MODEL_PACK: "tuya_cloud.daikin_ac.v1",
+        },
+        options={},
+    )
+    entity = climate.AeroStateClimate(
+        _hass(entry),
+        entry,
+        _daikin_pack(),
+        _IRManager(),
+        SimpleNamespace(
+            supported_vertical_swing_modes=lambda: ["off", "on"],
+            supported_horizontal_swing_modes=lambda: [],
+            supported_preset_modes=lambda: [],
+        ),
+    )
+    repair_calls: list[str] = []
+    monkeypatch.setattr(entity, "async_write_ha_state", lambda: None)
+    monkeypatch.setattr(entity, "_get_tuya_ir_manager", lambda: _FailingTuyaCloudManager())
+    monkeypatch.setattr(climate, "async_report_command_failure", lambda _hass, _entry: repair_calls.append("failure"))
+
+    entity._attr_hvac_mode = HVACMode.COOL
+    await entity._send_state_if_needed(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+        }
+    )
+
+    assert entity._attr_hvac_mode == HVACMode.COOL
+    assert entity._last_sent_state is None
+    assert "No permissions" in entity.extra_state_attributes["last_command_error"]
+    assert repair_calls == ["failure"]
 
 
 @pytest.mark.asyncio
