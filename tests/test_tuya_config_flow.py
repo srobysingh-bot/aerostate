@@ -109,6 +109,13 @@ def _schema_keys(schema: vol.Schema) -> set[str]:
     }
 
 
+def _schema_default(schema: vol.Schema, key: str):
+    for marker in schema.schema:
+        if isinstance(marker, (vol.Required, vol.Optional)) and marker.schema == key:
+            return marker.default()
+    raise KeyError(key)
+
+
 @pytest.mark.asyncio
 async def test_tuya_config_flow_provider_step_shows_two_options() -> None:
     flow = AeroStateConfigFlow()
@@ -119,6 +126,10 @@ async def test_tuya_config_flow_provider_step_shows_two_options() -> None:
     assert result["type"] == "form"
     assert result["step_id"] == "user"
     assert _schema_keys(result["data_schema"]) == {CONF_IR_PROVIDER}
+    provider_selector = next(iter(result["data_schema"].schema.values()))
+    options = provider_selector.config["options"]
+    assert [option["value"] for option in options] == [IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA]
+    assert "Daikin local packs" in options[1]["label"]
 
 
 @pytest.mark.asyncio
@@ -143,6 +154,9 @@ async def test_tuya_config_flow_tuya_path_shows_tuya_device_step() -> None:
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_device"
     assert CONF_TUYA_IR_ENTITY in _schema_keys(result["data_schema"])
+    assert _schema_default(result["data_schema"], CONF_TUYA_MODEL_PACK) == (
+        "daikin.brc4c158.localtuya_rc.smartir1109.v1"
+    )
 
 
 @pytest.mark.asyncio
@@ -213,6 +227,7 @@ async def test_tuya_device_step_rejects_unavailable_remote_entity() -> None:
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
         },
     )
 
@@ -230,6 +245,7 @@ async def test_tuya_device_step_allows_pending_entry_when_no_codes_exist(tmp_pat
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
         },
     )
 
@@ -263,6 +279,26 @@ async def test_tuya_device_step_accepts_generated_pack_without_learned_codes(tmp
 
 
 @pytest.mark.asyncio
+async def test_tuya_device_step_accepts_daikin_builtin_pack_without_cloud_or_raw_source(tmp_path) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path, device_codes={})
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_MODEL_PACK: "daikin.brc4c158.localtuya_rc.smartir1109.v1",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "tuya_confirm"
+    assert result["description_placeholders"]["device_name"] == "BRC4C158"
+    assert result["description_placeholders"]["total_codes"] == "193"
+    assert result["description_placeholders"]["cool_temps_auto"] == "16-32"
+    assert result["description_placeholders"]["code_source_status"] == "Pre-generated Tuya code pack selected. No learning required."
+
+
+@pytest.mark.asyncio
 async def test_tuya_device_step_allows_pending_entry_when_power_off_missing(tmp_path) -> None:
     flow = AeroStateConfigFlow()
     flow.hass = _hass(tmp_path=tmp_path, device_codes={"temp_24": "raw:24"})
@@ -271,6 +307,7 @@ async def test_tuya_device_step_allows_pending_entry_when_power_off_missing(tmp_
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
         },
     )
 
@@ -294,6 +331,7 @@ async def test_tuya_device_step_accepts_portable_pack_without_localtuya_storage(
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
         },
     )
 
@@ -311,6 +349,7 @@ async def test_tuya_device_step_accepts_only_available_source_when_name_differs(
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_DEVICE_NAME: "Media room",
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
         },
     )
 
@@ -328,6 +367,7 @@ async def test_tuya_confirm_step_shows_before_entry_creation(tmp_path) -> None:
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "tuya.lg_pc09sq_nsj.v1",
         },
     )
 

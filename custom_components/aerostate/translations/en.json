@@ -17,10 +17,10 @@
       },
       "tuya_device": {
         "title": "Tuya IR Setup",
-        "description": "Select the Tuya IR remote and command pack. Learned/raw packs can also use an AeroState raw-code source.\n\n{code_source_hint}",
+        "description": "Select the Tuya IR remote entity and command pack. Built-in packs such as Daikin BRC4C158 do not use Tuya Cloud or learned raw-code sources.\n\n{code_source_hint}",
         "data": {
           "tuya_ir_entity": "Tuya IR Remote Entity",
-          "tuya_device_name": "Raw-code source name",
+          "tuya_device_name": "Raw-code source name (learned packs only)",
           "tuya_model_pack": "Tuya IR command pack"
         }
       },
@@ -123,7 +123,7 @@
           "model_pack": "Model pack",
           "ir_provider": "IR transport",
           "tuya_ir_entity": "Tuya IR remote entity",
-          "tuya_device_name": "Raw-code source name",
+          "tuya_device_name": "Raw-code source name (learned packs only)",
           "tuya_model_pack": "Tuya IR command pack",
           "tuya_cloud_endpoint": "Tuya OpenAPI endpoint",
           "tuya_cloud_access_id": "Tuya Access ID",

@@ -111,8 +111,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(value=IR_PROVIDER_BROADLINK, label="Broadlink IR (default)"),
-                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR pre-generated/learned codes"),
-                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA_CLOUD, label="Tuya Cloud code library (Daikin)"),
+                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR Device (LG/Daikin local packs)"),
                         ],
                         mode="list",
                     ),
@@ -269,6 +268,10 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="no_tuya_packs_available")
 
         default_pack = tuya_pack_options[0]["value"] if tuya_pack_options else ""
+        for option in tuya_pack_options:
+            if option["value"] == "daikin.brc4c158.localtuya_rc.smartir1109.v1":
+                default_pack = option["value"]
+                break
         default_code_source = ""
         if len(code_sources) == 1:
             default_code_source = str(code_sources[0].get("name", "")).strip()
@@ -329,12 +332,12 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "code_source_hint": (
-                    "AeroState first looks for portable raw-code JSON files in "
-                    "/config/aerostate_tuya_raw_codes/. If no portable pack is present, "
-                    "it falls back to localtuya_rc storage/backups. On another Home Assistant, "
-                    "export the working codes with aerostate.export_tuya_raw_codes and copy "
-                    "that JSON file into /config/aerostate_tuya_raw_codes/. Leave the pack/device "
-                    "name blank when there is only one code source."
+                    "For Daikin BRC4C158, select the built-in "
+                    "daikin.brc4c158.localtuya_rc.smartir1109.v1 pack. It uses the selected "
+                    "Tuya IR remote entity directly and does not need Tuya Cloud, Access ID, "
+                    "infrared_id, remote_id, learned commands, or a raw-code source name. "
+                    "Learned LG-style packs can still use portable raw-code JSON files in "
+                    "/config/aerostate_tuya_raw_codes/ or localtuya_rc storage/backups."
                 ),
             },
         )
