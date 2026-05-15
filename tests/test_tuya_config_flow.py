@@ -29,6 +29,7 @@ from custom_components.aerostate.const import (
     IR_PROVIDER_TUYA,
     IR_PROVIDER_TUYA_CLOUD,
 )
+from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
 from custom_components.aerostate.providers import tuya_raw_code_library
 
 
@@ -253,7 +254,9 @@ async def test_tuya_device_step_accepts_generated_pack_without_learned_codes(tmp
 
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_confirm"
-    assert result["description_placeholders"]["total_codes"] == "103"
+    assert result["description_placeholders"]["total_codes"] == str(
+        len(get_tuya_pack("lg.akb75415308.localtuya_rc.protocol.v1").commands),
+    )
     assert "No learning required" in result["description_placeholders"]["code_source_status"]
     assert result["description_placeholders"]["heat_supported"] == "Yes"
     assert result["description_placeholders"]["dry_supported"] == "Yes"

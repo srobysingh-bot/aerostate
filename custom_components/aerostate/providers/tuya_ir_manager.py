@@ -232,9 +232,16 @@ class TuyaIRManager:
             _LOGGER.debug("TuyaIRManager: stateful state unchanged, skipping main send")
         else:
             if previously_off:
-                _LOGGER.info("TuyaIRManager: sending power_on via %s", self._remote_entity_id)
-                await self._async_send_raw_command(self._resolve_pack_label("power_on"))
-                await asyncio.sleep(POWER_ON_SETTLE_SECONDS)
+                try:
+                    power_on = self._resolve_pack_label("power_on")
+                except LearnedCodeNotAvailable:
+                    _LOGGER.debug(
+                        "TuyaIRManager: stateful pack has no separate power_on; combined command will wake AC",
+                    )
+                else:
+                    _LOGGER.info("TuyaIRManager: sending power_on via %s", self._remote_entity_id)
+                    await self._async_send_raw_command(power_on)
+                    await asyncio.sleep(POWER_ON_SETTLE_SECONDS)
 
             _LOGGER.debug("TuyaIRManager: sending combined command %s", combined_key)
             await self._async_send_raw_command(self._resolve_pack_label(combined_key))

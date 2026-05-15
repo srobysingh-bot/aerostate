@@ -45,3 +45,4 @@ def get_tuya_pack_options_for_ui() -> list[dict]:
 
 from . import lg_pc09sq_nsj_tuya_v1 as _lg_pc09sq_nsj_tuya_v1  # noqa: E402,F401
 from . import lg_akb75415308_tuya_protocol_v1 as _lg_akb75415308_tuya_protocol_v1  # noqa: E402,F401
+from . import daikin_brc4c158_localtuya_v1 as _daikin_brc4c158_localtuya_v1  # noqa: E402,F401

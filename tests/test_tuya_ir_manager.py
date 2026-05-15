@@ -12,6 +12,10 @@ import pytest
 pytest.importorskip("homeassistant")
 
 from custom_components.aerostate.packs.tuya.lg_akb75415308_tuya_codes import CODES
+from custom_components.aerostate.packs.tuya.daikin_brc4c158_localtuya_v1 import (
+    CODES as DAIKIN_BRC4C158_CODES,
+    PACK_ID as DAIKIN_BRC4C158_PACK_ID,
+)
 from custom_components.aerostate.providers import tuya_raw_code_library
 from custom_components.aerostate.providers.learned_code_resolver import (
     LearnedCodeNotAvailable,
@@ -715,6 +719,36 @@ async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monk
         True,
         True,
         True,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_stateful_pack_without_power_on_sends_combined_wake(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+    hass = SimpleNamespace(
+        config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
+        services=SimpleNamespace(async_call=AsyncMock()),
+        states=SimpleNamespace(get=lambda _entity_id: MagicMock(state="on")),
+    )
+    manager = TuyaIRManager(
+        hass,
+        "remote.test_ir",
+        "Daikin BRC4C158",
+        pack_id=DAIKIN_BRC4C158_PACK_ID,
+    )
+
+    await manager.async_send_climate_state(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 20,
+            "fan_mode": "low",
+            "previously_off": True,
+        },
+    )
+
+    assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        DAIKIN_BRC4C158_CODES["cool_t20_flow"],
     ]
 
 

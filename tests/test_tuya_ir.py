@@ -12,6 +12,10 @@ from custom_components.aerostate.packs.tuya.lg_akb75415308_tuya_codes import COD
 from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
 from custom_components.aerostate.providers.ir_types import IRCommand
 from custom_components.aerostate.providers.tuya_ir import TuyaIRProvider
+from custom_components.aerostate.packs.tuya.daikin_brc4c158_localtuya_v1 import (
+    CODES as DAIKIN_BRC4C158_CODES,
+    PACK_ID as DAIKIN_BRC4C158_PACK_ID,
+)
 
 
 def test_normalize_hex_strips_non_hex_and_requires_even_length() -> None:
@@ -117,3 +121,30 @@ def test_akb75415308_tuya_pack_has_stateful_localtuya_rc_codes() -> None:
     assert pack.resolve_by_label("dry_t24_fhigh") == CODES["dry_t24_fhigh"]
     assert pack.resolve_by_label("auto_t24_fauto") == CODES["auto_t24_fauto"]
     assert pack.resolve_by_label("fan_only_t25_fmid") == CODES["fan_only_t25_fmid"]
+
+
+def test_daikin_brc4c158_tuya_pack_has_converted_localtuya_rc_codes() -> None:
+    pack = get_tuya_pack(DAIKIN_BRC4C158_PACK_ID)
+    model_pack = pack.to_model_pack()
+
+    assert pack.native_base64 is False
+    assert pack.requires_learned_codes is False
+    assert pack.transport == "localtuya_rc"
+    assert pack.protocol == "stateful"
+    assert len(DAIKIN_BRC4C158_CODES) == 193
+    assert len(pack.commands) == 193
+    assert model_pack.brand == "Daikin"
+    assert model_pack.models == ["BRC4C158"]
+    assert model_pack.transport == "localtuya_rc"
+    assert model_pack.min_temperature == 16
+    assert model_pack.max_temperature == 32
+    assert model_pack.capabilities.hvac_modes == ["cool", "heat", "dry", "fan_only"]
+    assert model_pack.capabilities.fan_modes == ["low", "mid", "high"]
+    assert pack.resolve_by_label("power_off") == DAIKIN_BRC4C158_CODES["power_off"]
+    assert pack.resolve_by_label("cool_t20_flow") == DAIKIN_BRC4C158_CODES["cool_t20_flow"]
+    assert pack.resolve_by_label("cool_t24_fmid") == DAIKIN_BRC4C158_CODES["cool_t24_fmid"]
+    assert pack.resolve_by_label("heat_t24_fhigh") == DAIKIN_BRC4C158_CODES["heat_t24_fhigh"]
+    assert pack.resolve_by_label("fan_only_t25_fmid") == DAIKIN_BRC4C158_CODES["fan_only_t25_fmid"]
+    assert pack.resolve_by_label("power_on") is None
+    assert DAIKIN_BRC4C158_CODES["cool_t20_flow"].startswith("raw:")
+    assert max(int(part) for part in DAIKIN_BRC4C158_CODES["cool_t20_flow"][4:].split(",")) < 65000
