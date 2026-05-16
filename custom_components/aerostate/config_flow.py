@@ -333,8 +333,9 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "code_source_hint": (
                     "For Daikin BRC4C158, select the built-in "
-                    "daikin.brc4c158.localtuya_rc.smartir1109.v1 pack. It uses the selected "
-                    "Tuya IR remote entity directly and does not need Tuya Cloud, Access ID, "
+                    "daikin.brc4c158.localtuya_rc.smartir1109.v1 pack. It contains generated "
+                    "Daikin BRC4CXXX raw commands for cool-only operation and uses the selected "
+                    "Tuya IR remote entity directly. It does not need Tuya Cloud, Access ID, "
                     "infrared_id, remote_id, learned commands, or a raw-code source name. "
                     "Learned LG-style packs can still use portable raw-code JSON files in "
                     "/config/aerostate_tuya_raw_codes/ or localtuya_rc storage/backups."

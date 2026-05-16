@@ -293,8 +293,10 @@ async def test_tuya_device_step_accepts_daikin_builtin_pack_without_cloud_or_raw
     assert result["type"] == "form"
     assert result["step_id"] == "tuya_confirm"
     assert result["description_placeholders"]["device_name"] == "BRC4C158"
-    assert result["description_placeholders"]["total_codes"] == "193"
-    assert result["description_placeholders"]["cool_temps_auto"] == "16-32"
+    assert result["description_placeholders"]["total_codes"] == "46"
+    assert result["description_placeholders"]["cool_temps_auto"] == "16-30"
+    assert result["description_placeholders"]["heat_supported"] == "No"
+    assert result["description_placeholders"]["dry_supported"] == "No"
     assert result["description_placeholders"]["code_source_status"] == "Pre-generated Tuya code pack selected. No learning required."
 
 
