@@ -24,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 
 POWER_ON_SETTLE_SECONDS = 0.8
 REMOTE_RETRY_SECONDS = 2.0
-SWING_COMMAND_GAP_SECONDS = 0.35
+SWING_COMMAND_GAP_SECONDS = 0.08
 
 
 class TuyaIRManager:
@@ -268,7 +268,7 @@ class TuyaIRManager:
                     desired_vertical,
                     v_label,
                 )
-                await self._async_send_raw_command(v_code)
+                await self._async_send_stateful_swing_command(v_label, v_code)
                 self._last_swing_vertical = desired_vertical
 
         if self._should_send_stateful_swing(desired_horizontal, self._last_swing_horizontal):
@@ -284,7 +284,7 @@ class TuyaIRManager:
                     desired_horizontal,
                     h_label,
                 )
-                await self._async_send_raw_command(h_code)
+                await self._async_send_stateful_swing_command(h_label, h_code)
                 self._last_swing_horizontal = desired_horizontal
 
     def _should_send_stateful_swing(self, desired: str | None, previous: str | None) -> bool:
@@ -339,6 +339,31 @@ class TuyaIRManager:
         if code:
             return code
         raise LearnedCodeNotAvailable(f"Selected Tuya pack does not contain command '{label}'")
+
+    async def _async_send_stateful_swing_command(self, label: str, raw_command: str) -> None:
+        """Send a stateful-pack swing command, preferring localtuya_rc learned names."""
+        await self._async_send_independent_command(label, raw_command, aliases=self._swing_label_aliases(label))
+
+    @staticmethod
+    def _swing_label_aliases(label: str) -> list[str]:
+        """Return localtuya_rc command-name aliases for a bundled swing label."""
+        normalized = str(label).strip().lower().replace(" ", "_").replace("-", "_")
+        prefixes = ("swing_vertical_", "swing_horizontal_")
+        axis = ""
+        mode = ""
+        for prefix in prefixes:
+            if normalized.startswith(prefix):
+                axis = "vertical" if "vertical" in prefix else "horizontal"
+                mode = normalized[len(prefix) :]
+                break
+        if not axis or not mode:
+            return []
+
+        return [
+            f"{axis}_{mode}",
+            f"{axis}_swing_{mode}",
+            f"swing_{axis}_{mode}",
+        ]
 
     async def _async_send_precomputed_state(self, state: dict[str, Any]) -> None:
         """Resolve and send a pre-generated native Tuya base64 command."""
@@ -485,12 +510,18 @@ class TuyaIRManager:
                 "entity_id": self._remote_entity_id,
                 "command": raw_command,
                 "num_repeats": 1,
-                "delay_secs": 0.4,
+                "delay_secs": 0.05,
             },
-            blocking=True,
+            blocking=False,
         )
 
-    async def _async_send_independent_command(self, label: str, raw_command: str) -> None:
+    async def _async_send_independent_command(
+        self,
+        label: str,
+        raw_command: str,
+        *,
+        aliases: list[str] | None = None,
+    ) -> None:
         """
         Send an independent learned command.
 
@@ -499,15 +530,22 @@ class TuyaIRManager:
         another Home Assistant without localtuya_rc storage, fall back to the
         portable raw command.
         """
-        device_name = self._localtuya_named_command_device(label)
-        if device_name:
+        command_labels = [label, *(aliases or [])]
+        seen: set[str] = set()
+        for command_label in command_labels:
+            if command_label in seen:
+                continue
+            seen.add(command_label)
+            device_name = self._localtuya_named_command_device(command_label)
+            if not device_name:
+                continue
             await self._hass.services.async_call(
                 "remote",
                 "send_command",
                 {
                     "entity_id": self._remote_entity_id,
                     "device": device_name,
-                    "command": label,
+                    "command": command_label,
                 },
                 blocking=False,
             )

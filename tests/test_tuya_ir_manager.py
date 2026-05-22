@@ -671,8 +671,8 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
     hass.services.async_call.assert_awaited_once_with(
         "remote",
         "send_command",
-        {"entity_id": "remote.test_ir", "command": "raw:off", "num_repeats": 1, "delay_secs": 0.4},
-        blocking=True,
+        {"entity_id": "remote.test_ir", "command": "raw:off", "num_repeats": 1, "delay_secs": 0.05},
+        blocking=False,
     )
 
 
@@ -716,9 +716,9 @@ async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monk
         CODES["cool_t26_fauto"],
     ]
     assert [call.kwargs["blocking"] for call in hass.services.async_call.await_args_list] == [
-        True,
-        True,
-        True,
+        False,
+        False,
+        False,
     ]
 
 
@@ -840,6 +840,54 @@ async def test_tuya_manager_stateful_pack_sends_exact_swing_modes_only_on_swing_
         CODES["swing_horizontal_on"],
         CODES["swing_horizontal_off"],
     ]
+
+
+@pytest.mark.asyncio
+async def test_tuya_manager_stateful_pack_prefers_learned_horizontal_swing_alias(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.SWING_COMMAND_GAP_SECONDS", 0)
+    remote_entity_id = "remote.test_ir"
+    device_name = "Living AC IR"
+    learned_command = "horizontal_right_swing"
+    hass = _hass_with_storage(
+        tmp_path,
+        {
+            "version": 1,
+            "minor_version": 1,
+            "key": "localtuya_rc_codes",
+            "data": {
+                device_name: {
+                    learned_command: "raw:learned_right_swing",
+                },
+            },
+        },
+    )
+    hass.services = SimpleNamespace(async_call=AsyncMock())
+    hass.states = SimpleNamespace(get=lambda _entity_id: MagicMock(state="on"))
+    manager = TuyaIRManager(
+        hass,
+        remote_entity_id,
+        device_name,
+        pack_id="lg.akb75415308.localtuya_rc.protocol.v1",
+    )
+    manager._last_known_power = True
+    manager._last_swing_horizontal = "off"
+
+    await manager.async_send_climate_state(
+        {
+            "power": True,
+            "hvac_mode": "cool",
+            "target_temperature": 24,
+            "fan_mode": "auto",
+            "previously_off": False,
+            "swing_horizontal": "right_swing",
+        },
+    )
+
+    assert hass.services.async_call.await_args_list[1].args[2] == {
+        "entity_id": remote_entity_id,
+        "device": device_name,
+        "command": learned_command,
+    }
 
 
 @pytest.mark.asyncio

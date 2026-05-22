@@ -58,7 +58,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_max_temp = 30
     _attr_min_temp = 16
-    _command_debounce_seconds = 1.2
+    _command_debounce_seconds = 0.15
 
     def __init__(
         self,
