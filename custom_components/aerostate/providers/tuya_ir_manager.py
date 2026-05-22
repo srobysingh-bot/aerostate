@@ -232,17 +232,9 @@ class TuyaIRManager:
             _LOGGER.debug("TuyaIRManager: stateful state unchanged, skipping main send")
         else:
             if previously_off:
-                try:
-                    power_on = self._resolve_pack_label("power_on")
-                except LearnedCodeNotAvailable:
-                    _LOGGER.debug(
-                        "TuyaIRManager: stateful pack has no separate power_on; combined command will wake AC",
-                    )
-                else:
-                    _LOGGER.info("TuyaIRManager: sending power_on via %s", self._remote_entity_id)
-                    await self._async_send_raw_command(power_on)
-                    await asyncio.sleep(POWER_ON_SETTLE_SECONDS)
-
+                _LOGGER.debug(
+                    "TuyaIRManager: using combined state command to wake AC without separate power_on",
+                )
             _LOGGER.debug("TuyaIRManager: sending combined command %s", combined_key)
             await self._async_send_raw_command(self._resolve_pack_label(combined_key))
 
@@ -268,7 +260,7 @@ class TuyaIRManager:
                     desired_vertical,
                     v_label,
                 )
-                await self._async_send_stateful_swing_command(v_label, v_code)
+                await self._async_send_stateful_swing_command("vertical", v_label, v_code)
                 self._last_swing_vertical = desired_vertical
 
         if self._should_send_stateful_swing(desired_horizontal, self._last_swing_horizontal):
@@ -284,7 +276,7 @@ class TuyaIRManager:
                     desired_horizontal,
                     h_label,
                 )
-                await self._async_send_stateful_swing_command(h_label, h_code)
+                await self._async_send_stateful_swing_command("horizontal", h_label, h_code)
                 self._last_swing_horizontal = desired_horizontal
 
     def _should_send_stateful_swing(self, desired: str | None, previous: str | None) -> bool:
@@ -340,8 +332,11 @@ class TuyaIRManager:
             return code
         raise LearnedCodeNotAvailable(f"Selected Tuya pack does not contain command '{label}'")
 
-    async def _async_send_stateful_swing_command(self, label: str, raw_command: str) -> None:
-        """Send a stateful-pack swing command, preferring localtuya_rc learned names."""
+    async def _async_send_stateful_swing_command(self, axis: str, label: str, raw_command: str) -> None:
+        """Send a stateful-pack swing command."""
+        if axis == "horizontal":
+            await self._async_send_raw_command(raw_command)
+            return
         await self._async_send_independent_command(label, raw_command, aliases=self._swing_label_aliases(label))
 
     @staticmethod
@@ -491,17 +486,9 @@ class TuyaIRManager:
         """
         if self._remote_is_unavailable():
             _LOGGER.warning(
-                "TuyaIRManager: remote entity %s is unavailable, retrying in %.1fs",
+                "TuyaIRManager: remote entity %s reports unavailable; attempting immediate send anyway",
                 self._remote_entity_id,
-                REMOTE_RETRY_SECONDS,
             )
-            await asyncio.sleep(REMOTE_RETRY_SECONDS)
-            if self._remote_is_unavailable():
-                _LOGGER.error(
-                    "TuyaIRManager: remote entity %s still unavailable, command dropped",
-                    self._remote_entity_id,
-                )
-                raise RuntimeError(f"remote entity {self._remote_entity_id} is unavailable")
 
         await self._hass.services.async_call(
             "remote",

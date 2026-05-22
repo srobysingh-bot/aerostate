@@ -711,12 +711,10 @@ async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monk
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
-        CODES["power_on"],
         CODES["cool_t24_flow"],
         CODES["cool_t26_fauto"],
     ]
     assert [call.kwargs["blocking"] for call in hass.services.async_call.await_args_list] == [
-        False,
         False,
         False,
     ]
@@ -796,7 +794,6 @@ async def test_tuya_manager_stateful_pack_sends_only_changed_component(tmp_path,
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
-        CODES["power_on"],
         CODES["cool_t24_fmid"],
         CODES["cool_t25_fmid"],
         CODES["cool_t25_fhigh"],
@@ -843,7 +840,7 @@ async def test_tuya_manager_stateful_pack_sends_exact_swing_modes_only_on_swing_
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_stateful_pack_prefers_learned_horizontal_swing_alias(tmp_path, monkeypatch) -> None:
+async def test_tuya_manager_stateful_pack_prefers_bundled_horizontal_swing_raw(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.SWING_COMMAND_GAP_SECONDS", 0)
     remote_entity_id = "remote.test_ir"
     device_name = "Living AC IR"
@@ -885,8 +882,9 @@ async def test_tuya_manager_stateful_pack_prefers_learned_horizontal_swing_alias
 
     assert hass.services.async_call.await_args_list[1].args[2] == {
         "entity_id": remote_entity_id,
-        "device": device_name,
-        "command": learned_command,
+        "command": CODES["swing_horizontal_right_swing"],
+        "num_repeats": 1,
+        "delay_secs": 0.05,
     }
 
 
@@ -924,13 +922,11 @@ async def test_tuya_manager_stateful_pack_sends_extended_modes(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_retries_when_remote_recovers(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.REMOTE_RETRY_SECONDS", 0)
-    states = iter([MagicMock(state="unavailable"), MagicMock(state="on")])
+async def test_tuya_manager_attempts_send_when_remote_reports_unavailable(tmp_path) -> None:
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
         services=SimpleNamespace(async_call=AsyncMock()),
-        states=SimpleNamespace(get=lambda _entity_id: next(states)),
+        states=SimpleNamespace(get=lambda _entity_id: MagicMock(state="unavailable")),
     )
     manager = TuyaIRManager(
         hass,
