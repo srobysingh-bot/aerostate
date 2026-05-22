@@ -827,14 +827,14 @@ async def test_tuya_manager_stateful_pack_sends_exact_swing_modes_only_on_swing_
     await manager.async_send_climate_state({**base_state, "swing_vertical": "off"})
     await manager.async_send_climate_state({**base_state, "swing_vertical": "swing"})
     await manager.async_send_climate_state({**base_state, "swing_vertical": "off"})
-    await manager.async_send_climate_state({**base_state, "swing_horizontal": "swing"})
+    await manager.async_send_climate_state({**base_state, "swing_horizontal": "swing_on"})
     await manager.async_send_climate_state({**base_state, "swing_horizontal": "off"})
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         CODES["cool_t24_fauto"],
         CODES["swing_vertical_swing"],
         CODES["swing_vertical_off"],
-        CODES["swing_horizontal_on"],
+        CODES["swing_horizontal_swing_on"],
         CODES["swing_horizontal_off"],
     ]
 
@@ -844,7 +844,7 @@ async def test_tuya_manager_stateful_pack_prefers_bundled_horizontal_swing_raw(t
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.SWING_COMMAND_GAP_SECONDS", 0)
     remote_entity_id = "remote.test_ir"
     device_name = "Living AC IR"
-    learned_command = "horizontal_right_swing"
+    learned_command = "horizontal_right_auto_swing"
     hass = _hass_with_storage(
         tmp_path,
         {
@@ -876,13 +876,13 @@ async def test_tuya_manager_stateful_pack_prefers_bundled_horizontal_swing_raw(t
             "target_temperature": 24,
             "fan_mode": "auto",
             "previously_off": False,
-            "swing_horizontal": "right_swing",
+            "swing_horizontal": "right_auto_swing",
         },
     )
 
     assert hass.services.async_call.await_args_list[1].args[2] == {
         "entity_id": remote_entity_id,
-        "command": CODES["swing_horizontal_right_swing"],
+        "command": CODES["swing_horizontal_right_auto_swing"],
         "num_repeats": 1,
         "delay_secs": 0.05,
     }

@@ -105,19 +105,19 @@ def test_akb75415308_tuya_pack_has_stateful_localtuya_rc_codes() -> None:
     ]
     assert model_pack.capabilities.swing_horizontal_modes == [
         "off",
-        "on",
+        "swing_on",
+        "left_most",
         "left_mid",
-        "mid",
+        "center",
         "right_mid",
-        "right_most",
-        "left_swing",
-        "right_swing",
-        "full_swing",
+        "left_auto_swing",
+        "right_auto_swing",
+        "full_auto_swing",
     ]
     assert pack.resolve_by_label("power_on") == CODES["power_on"]
     assert pack.resolve_by_label("power_off") == CODES["power_off"]
     assert pack.resolve_by_label("swing_vertical_middle") == CODES["swing_vertical_middle"]
-    assert pack.resolve_by_label("swing_horizontal_full_swing") == CODES["swing_horizontal_full_swing"]
+    assert pack.resolve_by_label("swing_horizontal_full_auto_swing") == CODES["swing_horizontal_full_auto_swing"]
     assert pack.resolve_by_label("cool_t24_fauto") == CODES["cool_t24_fauto"]
     assert pack.resolve_by_label("cool_t24_flow") == CODES["cool_t24_flow"]
     assert pack.resolve_by_label("heat_t24_fmid_high") == CODES["heat_t24_fmid_high"]
