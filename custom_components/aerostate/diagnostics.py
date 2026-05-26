@@ -41,6 +41,7 @@ from .providers.ir_manager import create_ir_manager_from_entry
 from .validation import build_safe_validation_states
 
 TO_REDACT: set[str] = {CONF_TUYA_CLOUD_ACCESS_ID, CONF_TUYA_CLOUD_ACCESS_SECRET}
+PROTOCOL_ENGINE_TYPES = {"lg_protocol", "daikin_protocol"}
 
 
 def _without_secrets(values: dict[str, Any]) -> dict[str, Any]:
@@ -132,7 +133,7 @@ async def async_get_config_entry_diagnostics(
             "pack_brand": pack.brand if pack else None,
             "pack_version": pack.pack_version if pack else None,
             "engine_type": pack.engine_type if pack else None,
-            "protocol_path_active": bool(pack and pack.engine_type == "lg_protocol"),
+            "protocol_path_active": bool(pack and pack.engine_type in PROTOCOL_ENGINE_TYPES),
             "pack_verified": pack.verified if pack else None,
             "pack_experimental": (not pack.verified) if pack else None,
             "pack_notes": pack.notes if pack else None,
@@ -173,7 +174,7 @@ async def async_get_config_entry_diagnostics(
             "support_summary": {
                 "selected_pack_id": pack_id,
                 "engine_type": pack.engine_type if pack else None,
-                "protocol_path_active": bool(pack and pack.engine_type == "lg_protocol"),
+                "protocol_path_active": bool(pack and pack.engine_type in PROTOCOL_ENGINE_TYPES),
                 "verified": pack.verified if pack else None,
                 "physically_verified_hvac_modes": physically_verified_modes,
                 "fan_modes": pack.capabilities.fan_modes if pack else None,

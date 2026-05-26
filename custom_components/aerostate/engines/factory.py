@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .base import StateEngine
+from .daikin_engine import DaikinEngine
 from .lg_engine import LGProtocolEngine
 from .table_engine import TableEngine
 
@@ -14,4 +15,6 @@ def create_engine(pack: object) -> StateEngine:
         return TableEngine(pack)
     if engine_type == "lg_protocol":
         return LGProtocolEngine(pack)
+    if engine_type == "daikin_protocol":
+        return DaikinEngine(pack)
     raise ValueError(f"Unsupported engine type '{engine_type}'")

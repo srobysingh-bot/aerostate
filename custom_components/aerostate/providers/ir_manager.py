@@ -96,7 +96,7 @@ class IRManager:
         tuya_ir_no_ack_mode: bool = False,
     ) -> None:
         self._device_id = device_id
-        self._lg_engine = lg_engine
+        self._engine = lg_engine
 
         self._normalized_provider_key = normalized_provider_key
         self._invalid_tuya_reason: str | None = (
@@ -192,12 +192,12 @@ class IRManager:
                 )
 
         if self._normalized_provider_key == IR_PROVIDER_BROADLINK:
-            resolved = self._lg_engine.resolve_command(state_dict)
+            resolved = self._engine.resolve_command(state_dict)
             fmt = "broadlink"
         elif self._conversion_layer is not None:
             assert self._tuya_sender is not None
-            lg_resolved = self._lg_engine.resolve_command(state_dict)
-            b64_parts = lg_resolved if isinstance(lg_resolved, list) else [lg_resolved]
+            resolved_broadlink = self._engine.resolve_command(state_dict)
+            b64_parts = resolved_broadlink if isinstance(resolved_broadlink, list) else [resolved_broadlink]
             cmds_optional, failure_reason = self._conversion_layer.sequence_to_ir_commands_or_none(
                 broadlink_parts=list(b64_parts),
                 payload_hash_src=list(b64_parts),

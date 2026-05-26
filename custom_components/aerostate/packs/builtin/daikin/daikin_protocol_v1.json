@@ -1,0 +1,64 @@
+{
+  "id": "daikin.protocol.v1",
+  "brand": "Daikin",
+  "pack_version": 1,
+  "models": [
+    "Daikin IR protocol engine"
+  ],
+  "transport": "broadlink_base64",
+  "min_temperature": 10,
+  "max_temperature": 32,
+  "temperature_step": 1,
+  "verified": false,
+  "notes": "Broadlink-only Daikin protocol pack. Commands are generated from the full Daikin state frame at send time; no per-button learned IR payloads are stored in this pack.",
+  "physically_verified_modes": [],
+  "mode_status": {
+    "auto": "experimental",
+    "heat": "experimental",
+    "cool": "experimental",
+    "dry": "experimental",
+    "fan_only": "experimental"
+  },
+  "mvp_test_pack": false,
+  "engine": {
+    "type": "daikin_protocol"
+  },
+  "capabilities": {
+    "hvac_modes": [
+      "auto",
+      "heat",
+      "cool",
+      "dry",
+      "fan_only"
+    ],
+    "fan_modes": [
+      "auto",
+      "f1",
+      "f2",
+      "f3",
+      "f4",
+      "f5",
+      "quiet"
+    ],
+    "swing_vertical_modes": [
+      "off",
+      "auto",
+      "position_low",
+      "position_mid",
+      "position_high"
+    ],
+    "swing_horizontal_modes": [
+      "off",
+      "auto",
+      "left",
+      "center",
+      "right"
+    ],
+    "presets": [],
+    "preset_modes": [],
+    "supports_jet": false
+  },
+  "commands": {
+    "off": "protocol_generated"
+  }
+}

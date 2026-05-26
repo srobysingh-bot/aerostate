@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from custom_components.aerostate.engines.daikin_engine import DaikinEngine
 from custom_components.aerostate.engines.factory import create_engine
 from custom_components.aerostate.engines.lg_engine import LGProtocolEngine
 from custom_components.aerostate.engines.table_engine import TableEngine
@@ -39,6 +40,11 @@ def test_factory_routes_table_engine_unchanged() -> None:
 def test_factory_routes_lg_engine_unchanged() -> None:
     engine = create_engine(_pack("lg_protocol"))
     assert isinstance(engine, LGProtocolEngine)
+
+
+def test_factory_routes_daikin_engine() -> None:
+    engine = create_engine(_pack("daikin_protocol"))
+    assert isinstance(engine, DaikinEngine)
 
 
 def test_factory_rejects_unsupported_engine_type() -> None:

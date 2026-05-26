@@ -136,9 +136,9 @@ def validate_pack_dict(data: dict[str, Any]) -> None:
         raise ValueError("'engine' must be an object when provided")
 
     engine_type = engine_data.get("type", "table")
-    if engine_type not in {"table", "lg_protocol"}:
+    if engine_type not in {"table", "lg_protocol", "daikin_protocol"}:
         raise ValueError(
-            f"Unsupported engine type '{engine_type}'. Supported: table, lg_protocol"
+            f"Unsupported engine type '{engine_type}'. Supported: table, lg_protocol, daikin_protocol"
         )
 
     if "off" not in data["commands"]:

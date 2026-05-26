@@ -72,6 +72,8 @@ def describe_pack_limitations(pack) -> str:
         if limitations:
             return " ".join(limitations)
 
+    if pack.engine_type == "daikin_protocol" and not pack.verified:
+        return "Experimental protocol-generated Daikin Broadlink control. Verify behavior on real hardware."
     if pack.engine_type == "lg_protocol" and not pack.verified:
         return "Experimental protocol-generated LG control. Verify behavior on real hardware."
     if not pack.verified:

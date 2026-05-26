@@ -70,6 +70,18 @@ def test_loader_accepts_lg_protocol_engine_type(tmp_path) -> None:
     assert pack.engine_type == "lg_protocol"
 
 
+def test_loader_accepts_daikin_protocol_engine_type(tmp_path) -> None:
+    data = _base_pack_dict()
+    data["brand"] = "Daikin"
+    data["engine"] = {"type": "daikin_protocol"}
+    data["commands"] = {"off": "protocol_generated"}
+    pack_file = tmp_path / "pack.json"
+    pack_file.write_text(json.dumps(data), encoding="utf-8")
+
+    pack = load_pack_from_path(str(pack_file))
+    assert pack.engine_type == "daikin_protocol"
+
+
 def test_loader_accepts_optional_preset_modes_and_supports_jet(tmp_path) -> None:
     data = _base_pack_dict()
     data["capabilities"]["preset_modes"] = ["none", "jet"]
