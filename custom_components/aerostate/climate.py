@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
@@ -51,6 +52,10 @@ if TYPE_CHECKING:
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
+ATTR_AEROSTATE_POWER_STATE = "aerostate_power_state"
+ATTR_AEROSTATE_RESTORED_STATE = "aerostate_restored_state"
+ATTR_AEROSTATE_STATE_TIMESTAMP = "aerostate_state_timestamp"
+
 
 class AeroStateClimate(ClimateEntity, RestoreEntity):
     """Climate entity for AeroState AC control."""
@@ -87,7 +92,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         self._was_off: bool = True
 
         # State tracking
-        self._attr_hvac_mode = HVACMode.OFF
+        self._attr_hvac_mode: HVACMode | None = None
         self._attr_target_temperature = max(
             float(pack.min_temperature),
             min(float(pack.max_temperature), 24.0),
@@ -147,8 +152,14 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         self._last_sent_state: dict[str, Any] | None = None
         self._last_sent_payload_hash: str | None = None
         self._last_send_error: str | None = None
+        self._restored_from_last_state = False
+        self._state_snapshot_timestamp: str | None = None
         self._debounce_handle: asyncio.TimerHandle | None = None
         self._send_worker_task: asyncio.Task[None] | None = None
+
+    def _mark_state_snapshot_updated(self) -> None:
+        """Record when the visible assumed HVAC state last changed."""
+        self._state_snapshot_timestamp = datetime.now(timezone.utc).isoformat()
 
     def _entry_value(self, key: str, default: Any = None) -> Any:
         """Read an entry value, preferring options over data."""
@@ -292,11 +303,11 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         return running_modes[0]
 
     async def async_added_to_hass(self) -> None:
-        """Restore state after restart and reconcile with linked power sensor."""
+        """Restore visible assumed HVAC state after restart without sending IR."""
         await super().async_added_to_hass()
 
         last_state = await self.async_get_last_state()
-        restored_hvac_mode: HVACMode | None = None
+        restored_any_state = False
 
         if last_state is not None:
             try:
@@ -306,7 +317,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
 
             if candidate_hvac_mode is not None and candidate_hvac_mode in self.hvac_modes:
                 self._attr_hvac_mode = candidate_hvac_mode
-                restored_hvac_mode = candidate_hvac_mode
+                restored_any_state = True
                 if candidate_hvac_mode != HVACMode.OFF:
                     self._last_requested_hvac_mode = candidate_hvac_mode
 
@@ -320,18 +331,22 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                     if self._supported_temperatures:
                         if requested in self._supported_temperatures:
                             self._attr_target_temperature = float(requested)
+                            restored_any_state = True
                     elif int(self._attr_min_temp) <= requested <= int(self._attr_max_temp):
                         self._attr_target_temperature = float(requested)
+                        restored_any_state = True
 
             restored_fan = last_state.attributes.get("fan_mode")
             if isinstance(restored_fan, str):
                 normalized_fan = restored_fan.lower()
                 if normalized_fan in self._pack.capabilities.fan_modes:
                     self._attr_fan_mode = normalized_fan
+                    restored_any_state = True
 
             restored_swing = last_state.attributes.get("swing_mode")
             if isinstance(restored_swing, str) and restored_swing in self._supported_swing_vertical_modes:
                 self._attr_swing_mode = restored_swing
+                restored_any_state = True
 
             restored_swing_horizontal = last_state.attributes.get("swing_horizontal_mode")
             if (
@@ -339,10 +354,12 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 and restored_swing_horizontal in self._supported_swing_horizontal_modes
             ):
                 self._attr_swing_horizontal_mode = restored_swing_horizontal
+                restored_any_state = True
 
             restored_preset = last_state.attributes.get("preset_mode")
             if isinstance(restored_preset, str) and restored_preset in self._supported_preset_modes:
                 self._attr_preset_mode = restored_preset
+                restored_any_state = True
 
             restored_last_requested_hvac = last_state.attributes.get("last_requested_hvac_mode")
             if isinstance(restored_last_requested_hvac, str):
@@ -353,21 +370,34 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 if candidate_requested in self.hvac_modes and candidate_requested != HVACMode.OFF:
                     self._last_requested_hvac_mode = candidate_requested
 
-        normalized_power = self._normalize_power_state(self._power_sensor_state())
-        if self._ir_manager.tuya_assumes_no_ack:
-            if normalized_power == "on" and self._attr_hvac_mode == HVACMode.OFF:
-                inferred_mode = self._pick_safe_running_mode(restored_hvac_mode)
-                if inferred_mode is not None:
-                    self._attr_hvac_mode = inferred_mode
-        else:
-            if normalized_power == "off":
-                self._attr_hvac_mode = HVACMode.OFF
-            elif normalized_power == "on" and self._attr_hvac_mode == HVACMode.OFF:
-                inferred_mode = self._pick_safe_running_mode(restored_hvac_mode)
-                if inferred_mode is not None:
-                    self._attr_hvac_mode = inferred_mode
+            restored_timestamp = last_state.attributes.get(ATTR_AEROSTATE_STATE_TIMESTAMP)
+            if isinstance(restored_timestamp, str) and restored_timestamp:
+                self._state_snapshot_timestamp = restored_timestamp
+            else:
+                last_updated = getattr(last_state, "last_updated", None)
+                if last_updated is not None and hasattr(last_updated, "isoformat"):
+                    self._state_snapshot_timestamp = last_updated.isoformat()
 
-        self._was_off = self._attr_hvac_mode == HVACMode.OFF
+        self._restored_from_last_state = restored_any_state
+        if restored_any_state and self._state_snapshot_timestamp is None:
+            self._mark_state_snapshot_updated()
+
+        normalized_power = self._normalize_power_state(self._power_sensor_state())
+        if normalized_power is not None:
+            _LOGGER.debug(
+                "Startup restore for %s keeps assumed HVAC state=%s while linked power sensor reports %s",
+                self.entity_id,
+                self._attr_hvac_mode,
+                normalized_power,
+            )
+
+        if self._attr_hvac_mode is None:
+            _LOGGER.debug(
+                "No restorable AeroState HVAC state for %s; leaving climate state unknown",
+                self.entity_id,
+            )
+
+        self._was_off = self._attr_hvac_mode in {None, HVACMode.OFF}
         self.async_write_ha_state()
 
     @property
@@ -541,6 +571,11 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             "pending_command": self._pending_state is not None,
             "desired_differs_from_last_sent": desired_differs_from_last_sent,
             "last_requested_hvac_mode": self._last_requested_hvac_mode.value,
+            ATTR_AEROSTATE_POWER_STATE: (
+                None if self._attr_hvac_mode is None else self._attr_hvac_mode != HVACMode.OFF
+            ),
+            ATTR_AEROSTATE_RESTORED_STATE: self._restored_from_last_state,
+            ATTR_AEROSTATE_STATE_TIMESTAMP: self._state_snapshot_timestamp,
             "ir_transport_effective": self._ir_manager.effective_ir_mode(),
             "ir_provider_configured": self._ir_manager.preference_configured,
             "tuya_ir_no_ack_mode": self._ir_manager.tuya_assumes_no_ack,
@@ -570,6 +605,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         self._attr_hvac_mode = hvac_mode
         if hvac_mode != HVACMode.OFF:
             self._last_requested_hvac_mode = hvac_mode
+        self._mark_state_snapshot_updated()
         self._schedule_state_apply()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -598,6 +634,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                     f"Temperature {requested} is not available in the selected pack command matrix"
                 )
             self._attr_target_temperature = requested
+            self._mark_state_snapshot_updated()
         self._schedule_state_apply()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
@@ -613,6 +650,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             raise HomeAssistantError(f"Fan mode '{fan_mode}' is not supported by selected pack")
 
         self._attr_fan_mode = normalized_fan_mode
+        self._mark_state_snapshot_updated()
         self._schedule_state_apply()
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
@@ -629,6 +667,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             )
 
         self._attr_swing_mode = swing_mode
+        self._mark_state_snapshot_updated()
         self._schedule_state_apply()
 
     async def async_set_swing_horizontal_mode(
@@ -647,18 +686,23 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             )
 
         self._attr_swing_horizontal_mode = swing_horizontal_mode
+        self._mark_state_snapshot_updated()
         self._schedule_state_apply()
 
     async def async_turn_on(self) -> None:
         """Turn on (set to last hvac_mode or cool)."""
         if self._attr_hvac_mode == HVACMode.OFF:
             self._attr_hvac_mode = self._last_requested_hvac_mode
+        elif self._attr_hvac_mode is None:
+            self._attr_hvac_mode = self._last_requested_hvac_mode
 
+        self._mark_state_snapshot_updated()
         self._schedule_state_apply()
 
     async def async_turn_off(self) -> None:
         """Turn off."""
         self._attr_hvac_mode = HVACMode.OFF
+        self._mark_state_snapshot_updated()
         self._schedule_state_apply()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
@@ -675,6 +719,7 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             )
 
         self._attr_preset_mode = preset_mode
+        self._mark_state_snapshot_updated()
         self._schedule_state_apply()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -694,9 +739,10 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
         target_temp = max(self._attr_min_temp, min(self._attr_target_temperature, self._attr_max_temp))
         self._attr_target_temperature = target_temp
 
+        power_on = self._attr_hvac_mode not in {None, HVACMode.OFF}
         state_dict: dict[str, Any] = {
-            "power": self._attr_hvac_mode != HVACMode.OFF,
-            "hvac_mode": self._attr_hvac_mode.value if self._attr_hvac_mode != HVACMode.OFF else "off",
+            "power": power_on,
+            "hvac_mode": self._attr_hvac_mode.value if power_on and self._attr_hvac_mode is not None else "off",
             "target_temperature": int(round(self._attr_target_temperature)),
         }
 

@@ -11,10 +11,14 @@ pytest.importorskip("homeassistant")
 from homeassistant.components.climate import HVACMode
 from homeassistant.const import ATTR_TEMPERATURE
 
-from custom_components.aerostate.climate import AeroStateClimate
+from custom_components.aerostate.climate import (
+    ATTR_AEROSTATE_POWER_STATE,
+    ATTR_AEROSTATE_RESTORED_STATE,
+    ATTR_AEROSTATE_STATE_TIMESTAMP,
+    AeroStateClimate,
+)
 from custom_components.aerostate.const import CONF_POWER_SENSOR
 from custom_components.aerostate.packs.schema import ModelPack, PackCapabilities
-
 from tests.ir_testing_utils import IdleIRManager
 
 
@@ -150,6 +154,10 @@ async def test_restore_last_hvac_mode_after_restart() -> None:
     )
 
     assert climate.hvac_mode == HVACMode.HEAT
+    attrs = climate.extra_state_attributes
+    assert attrs[ATTR_AEROSTATE_POWER_STATE] is True
+    assert attrs[ATTR_AEROSTATE_RESTORED_STATE] is True
+    assert attrs[ATTR_AEROSTATE_STATE_TIMESTAMP] is not None
 
 
 @pytest.mark.asyncio
@@ -177,6 +185,37 @@ async def test_restore_supported_target_fan_swing_horizontal_and_preset() -> Non
     assert climate.swing_mode == "on"
     assert climate.swing_horizontal_mode == "on"
     assert climate.preset_mode == "jet"
+
+
+@pytest.mark.asyncio
+async def test_restore_does_not_send_or_schedule_ir_on_startup() -> None:
+    climate = _build_climate()
+    climate._schedule_state_apply = pytest.fail  # type: ignore[method-assign]
+
+    await _run_restore(
+        climate,
+        _StoredState(
+            state="cool",
+            attributes={
+                ATTR_TEMPERATURE: 24,
+                "fan_mode": "high",
+                "last_requested_hvac_mode": "cool",
+            },
+        ),
+    )
+
+    assert climate.hvac_mode == HVACMode.COOL
+
+
+@pytest.mark.asyncio
+async def test_no_restored_state_leaves_hvac_unknown_not_off() -> None:
+    climate = _build_climate()
+
+    await _run_restore(climate, None)
+
+    assert climate.hvac_mode is None
+    assert climate.extra_state_attributes[ATTR_AEROSTATE_POWER_STATE] is None
+    assert climate.extra_state_attributes[ATTR_AEROSTATE_RESTORED_STATE] is False
 
 
 @pytest.mark.asyncio
@@ -211,7 +250,7 @@ async def test_restore_ignores_unsupported_values_safely() -> None:
 
 
 @pytest.mark.asyncio
-async def test_linked_power_sensor_forces_off_after_restore() -> None:
+async def test_linked_power_sensor_off_does_not_override_restored_assumed_state() -> None:
     hass = _FakeHass()
     hass.states.set("sensor.ac_power", "off")
     climate = _build_climate(with_power_sensor=True, hass=hass)
@@ -224,21 +263,15 @@ async def test_linked_power_sensor_forces_off_after_restore() -> None:
         ),
     )
 
-    assert climate.hvac_mode == HVACMode.OFF
+    assert climate.hvac_mode == HVACMode.HEAT
 
 
 @pytest.mark.asyncio
-async def test_linked_power_sensor_on_restores_last_requested_running_mode() -> None:
+async def test_linked_power_sensor_on_does_not_invent_state_without_restore() -> None:
     hass = _FakeHass()
     hass.states.set("sensor.ac_power", "on")
     climate = _build_climate(with_power_sensor=True, hass=hass)
 
-    await _run_restore(
-        climate,
-        _StoredState(
-            state="off",
-            attributes={"last_requested_hvac_mode": "heat"},
-        ),
-    )
+    await _run_restore(climate, None)
 
-    assert climate.hvac_mode == HVACMode.HEAT
+    assert climate.hvac_mode is None
