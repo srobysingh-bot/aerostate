@@ -169,6 +169,12 @@ def _tuya_entry() -> SimpleNamespace:
     )
 
 
+def _tuya_entry_with_power_sensor() -> SimpleNamespace:
+    entry = _tuya_entry()
+    entry.data["power_sensor"] = "sensor.ac_power"
+    return entry
+
+
 def _build_climate(
     send_delay: float = 0.0,
     hass: _FakeHass | None = None,
@@ -347,6 +353,52 @@ async def test_tuya_duplicate_pending_state_during_send_is_discarded() -> None:
     await asyncio.sleep(0.12)
 
     assert len(tuya_manager.states) == 1
+
+
+@pytest.mark.asyncio
+async def test_tuya_duplicate_on_resends_when_linked_power_sensor_reports_off() -> None:
+    hass = _FakeHass()
+    hass.states.set("sensor.ac_power", "off")
+    climate, _mgr = _build_climate(hass=hass, entry=_tuya_entry_with_power_sensor())
+    tuya_manager = _RecordingTuyaManager()
+    climate._tuya_ir_manager = tuya_manager
+    state = {
+        "power": True,
+        "hvac_mode": "cool",
+        "target_temperature": 24,
+        "fan_mode": "auto",
+        "swing_vertical": "off",
+        "swing_horizontal": "off",
+    }
+    climate._last_sent_state = dict(state)
+    climate._was_off = False
+
+    await climate._send_state_if_needed(dict(state))
+
+    assert len(tuya_manager.states) == 1
+    assert tuya_manager.states[0]["previously_off"] is True
+
+
+@pytest.mark.asyncio
+async def test_tuya_duplicate_on_resends_when_last_known_power_is_off() -> None:
+    climate, _mgr = _build_climate(entry=_tuya_entry())
+    tuya_manager = _RecordingTuyaManager()
+    climate._tuya_ir_manager = tuya_manager
+    state = {
+        "power": True,
+        "hvac_mode": "cool",
+        "target_temperature": 24,
+        "fan_mode": "auto",
+        "swing_vertical": "off",
+        "swing_horizontal": "off",
+    }
+    climate._last_sent_state = dict(state)
+    climate._was_off = True
+
+    await climate._send_state_if_needed(dict(state))
+
+    assert len(tuya_manager.states) == 1
+    assert tuya_manager.states[0]["previously_off"] is True
 
 
 @pytest.mark.asyncio

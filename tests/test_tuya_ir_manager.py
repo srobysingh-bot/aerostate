@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -677,8 +678,9 @@ async def test_tuya_manager_sends_resolved_raw_command(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monkeypatch) -> None:
+async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monkeypatch, caplog) -> None:
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+    caplog.set_level(logging.DEBUG, logger="custom_components.aerostate.providers.tuya_ir_manager")
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
         services=SimpleNamespace(async_call=AsyncMock()),
@@ -711,18 +713,31 @@ async def test_tuya_manager_sends_stateful_localtuya_rc_raw_codes(tmp_path, monk
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        CODES["power_on"],
         CODES["cool_t24_flow"],
         CODES["cool_t26_fauto"],
     ]
     assert [call.kwargs["blocking"] for call in hass.services.async_call.await_args_list] == [
         False,
         False,
+        False,
     ]
+    assert "previously_off=True" in caplog.text
+    assert "wants_power=True" in caplog.text
+    assert "combined_key=cool_t24_flow" in caplog.text
+    assert "sending power_on" in caplog.text
+    assert "waiting settle" in caplog.text
+    assert "sending combined command cool_t24_flow" in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_tuya_manager_stateful_pack_without_power_on_sends_combined_wake(tmp_path, monkeypatch) -> None:
+async def test_tuya_manager_stateful_pack_without_power_on_sends_combined_wake(
+    tmp_path,
+    monkeypatch,
+    caplog,
+) -> None:
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.POWER_ON_SETTLE_SECONDS", 0)
+    caplog.set_level(logging.WARNING, logger="custom_components.aerostate.providers.tuya_ir_manager")
     hass = SimpleNamespace(
         config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
         services=SimpleNamespace(async_call=AsyncMock()),
@@ -748,6 +763,7 @@ async def test_tuya_manager_stateful_pack_without_power_on_sends_combined_wake(t
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
         DAIKIN_BRC4C158_CODES["cool_t20_flow"],
     ]
+    assert "power_on missing; falling back to combined state command" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -794,6 +810,7 @@ async def test_tuya_manager_stateful_pack_sends_only_changed_component(tmp_path,
     )
 
     assert [call.args[2]["command"] for call in hass.services.async_call.await_args_list] == [
+        CODES["power_on"],
         CODES["cool_t24_fmid"],
         CODES["cool_t25_fmid"],
         CODES["cool_t25_fhigh"],

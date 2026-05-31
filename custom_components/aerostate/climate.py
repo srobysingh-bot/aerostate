@@ -810,6 +810,23 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
             or str(state_dict.get("hvac_mode", "off")).lower() == HVACMode.OFF.value
         )
 
+    @staticmethod
+    def _state_wants_power(state_dict: dict[str, Any]) -> bool:
+        """Return True when a desired state should leave the AC running."""
+        return (
+            state_dict.get("power") is not False
+            and str(state_dict.get("hvac_mode", "off")).lower() != HVACMode.OFF.value
+        )
+
+    def _tuya_on_resend_required(self, state_dict: dict[str, Any]) -> bool:
+        """Return True when actual power feedback says a Tuya ON must be resent."""
+        if self._configured_ir_provider() != IR_PROVIDER_TUYA:
+            return False
+        if not self._state_wants_power(state_dict):
+            return False
+        linked_power_off = self._normalize_power_state(self._power_sensor_state()) == "off"
+        return linked_power_off or self._was_off
+
     def _schedule_state_apply(self) -> None:
         """Coalesce rapid UI mutations and enqueue only latest desired state."""
         self._pending_state = self._build_state_dict()
@@ -839,6 +856,11 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 self._pending_state = None
                 await self._send_state_if_needed(state_dict)
                 if self._pending_state is not None and self._pending_state == self._last_sent_state:
+                    if self._tuya_on_resend_required(self._pending_state):
+                        _LOGGER.debug(
+                            "Keeping duplicate Tuya ON pending state because actual power still reports off"
+                        )
+                        continue
                     _LOGGER.debug("Discarding duplicate pending state after command send")
                     self._pending_state = None
         finally:
@@ -847,7 +869,8 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
     async def _send_state_if_needed(self, state_dict: dict[str, Any]) -> None:
         """Resolve and send only if state or payload effectively changed."""
         try:
-            if state_dict == self._last_sent_state:
+            force_tuya_on_resend = self._tuya_on_resend_required(state_dict)
+            if state_dict == self._last_sent_state and not force_tuya_on_resend:
                 _LOGGER.debug("Skipping command send; desired state unchanged")
                 return
 
@@ -856,15 +879,21 @@ class AeroStateClimate(ClimateEntity, RestoreEntity):
                 comparable_new = dict(state_dict)
                 comparable_last.pop("previously_off", None)
                 comparable_new.pop("previously_off", None)
-                if comparable_new == comparable_last:
+                if comparable_new == comparable_last and not force_tuya_on_resend:
                     _LOGGER.debug("Skipping Tuya send; desired state unchanged")
                     return
+                if force_tuya_on_resend:
+                    _LOGGER.debug(
+                        "Forcing Tuya ON resend because linked_power=%s was_off=%s",
+                        self._normalize_power_state(self._power_sensor_state()),
+                        self._was_off,
+                    )
 
             _LOGGER.debug("Applying state: %s", state_dict)
             if self._configured_ir_provider() in {IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}:
                 tuya_manager = self._get_tuya_ir_manager()
                 tuya_state = dict(state_dict)
-                tuya_state["previously_off"] = self._was_off
+                tuya_state["previously_off"] = self._was_off or force_tuya_on_resend
                 await tuya_manager.async_send_climate_state(tuya_state)
                 self._last_sent_state = dict(state_dict)
                 self._mark_power_tracking_from_state(state_dict)

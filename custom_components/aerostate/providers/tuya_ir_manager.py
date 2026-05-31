@@ -227,16 +227,47 @@ class TuyaIRManager:
             and fan_norm == self._last_sent_fan_mode
             and not previously_off
         )
+        _LOGGER.debug(
+            "TuyaIRManager: stateful raw wants_power=%s previously_off=%s combined_key=%s",
+            wants_power,
+            previously_off,
+            combined_key,
+        )
 
         if state_unchanged:
             _LOGGER.debug("TuyaIRManager: stateful state unchanged, skipping main send")
         else:
-            if previously_off:
-                _LOGGER.debug(
-                    "TuyaIRManager: using combined state command to wake AC without separate power_on",
-                )
-            _LOGGER.debug("TuyaIRManager: sending combined command %s", combined_key)
-            await self._async_send_raw_command(self._resolve_pack_label(combined_key))
+            combined_payload = self._resolve_pack_label(combined_key)
+            power_on_sent = False
+
+            if previously_off and wants_power:
+                try:
+                    power_on_payload = self._resolve_pack_label("power_on")
+                except LearnedCodeNotAvailable:
+                    _LOGGER.warning(
+                        "TuyaIRManager: power_on missing; falling back to combined state command"
+                    )
+                else:
+                    power_on_sent = True
+                    _LOGGER.info(
+                        "TuyaIRManager: sending power_on label=power_on payload_sha12=%s",
+                        self._payload_hash(power_on_payload),
+                    )
+                    await self._async_send_raw_command(power_on_payload)
+                    _LOGGER.debug(
+                        "TuyaIRManager: waiting settle %.2fs before combined command %s",
+                        POWER_ON_SETTLE_SECONDS,
+                        combined_key,
+                    )
+                    await asyncio.sleep(POWER_ON_SETTLE_SECONDS)
+
+            _LOGGER.debug(
+                "TuyaIRManager: sending combined command %s power_on_sent=%s payload_sha12=%s",
+                combined_key,
+                power_on_sent,
+                self._payload_hash(combined_payload),
+            )
+            await self._async_send_raw_command(combined_payload)
 
             self._last_known_power = True
             self._last_sent_hvac_mode = hvac_mode
@@ -430,6 +461,11 @@ class TuyaIRManager:
             return int(round(float(state["target_temperature"])))
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _payload_hash(payload: str) -> str:
+        """Return a short debug hash for an IR payload."""
+        return hashlib.sha256(payload.encode("ascii", errors="replace")).hexdigest()[:12]
 
     def _should_send_swing_toggle(self, desired_vertical: str | None) -> bool:
         """Return True when a native-b64 pack needs its independent swing toggle."""
