@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 - 2026-05-31
+
+### Fixed
+- Tuya LG AKB75415308 stateful raw OFF -> ON now sends `power_on`, waits briefly, then sends the combined mode/temperature/fan command.
+- Tuya duplicate-skip logic now resends ON when linked or remembered power feedback says the AC is still off.
+
 ## 1.0.0 - 2026-03-20
 
 First production-ready AeroState release for the verified LG protocol scope.
