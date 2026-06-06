@@ -2,7 +2,7 @@
 
 AeroState is a Home Assistant custom integration that exposes supported IR air conditioners as native climate entities.
 
-Release: v1.0.0
+Release: v1.1.0
 
 ## Installation
 
@@ -20,11 +20,17 @@ Release: v1.0.0
 2. Restart Home Assistant.
 3. Add AeroState from Devices and Services.
 
-## Verified Production Scope
+## Supported Runtime Paths
 
-- Transport: Broadlink remote entities
-- Active production pack: lg.pc09sq_nsj.protocol.v1
-- Model: LG PC09SQ NSJ (protocol path)
+- Broadlink remote entities with existing Broadlink packs.
+- LG Tuya local IR using the existing AKB75415308 local pack.
+- Daikin Tuya local IR using a manually tested and confirmed local code-set pack.
+- No Tuya Cloud calls during normal local climate control.
+
+## Verified LG Production Scope
+
+- Active Broadlink production pack: lg.pc09sq_nsj.protocol.v1
+- Model: LG PC09SQ NSJ
 - Verified HVAC modes: auto, cool, heat, dry, fan_only
 - Verified temperature range: 16-30 C
 - Verified fan levels: auto, low, mid, high, highest
@@ -45,9 +51,10 @@ Release: v1.0.0
 4. Run onboarding validation.
 5. Add the created climate entity to a dashboard thermostat card.
 
-For Daikin ACs using a Tuya IR blaster, use the separate Tuya Cloud code-library
-route in `docs/TUYA_DAIKIN_CODE_LIBRARY_SETUP.md`. That path is isolated from
-Broadlink/LG and Tuya/LG learned-code control.
+For Daikin ACs using a Tuya IR blaster, import code-set packs once, test packs
+one command at a time with `aerostate.test_tuya_pack`, then save the working pack
+with `aerostate.confirm_tuya_pack`. Runtime control uses only that confirmed
+local pack.
 
 ## Troubleshooting
 
