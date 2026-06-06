@@ -15,6 +15,7 @@ pytest.importorskip("homeassistant")
 from custom_components.aerostate.config_flow import AeroStateConfigFlow
 from custom_components.aerostate.const import (
     CONF_IR_PROVIDER,
+    CONF_SELECTED_TUYA_PACK_ID,
     CONF_TUYA_CLOUD_ACCESS_ID,
     CONF_TUYA_CLOUD_ACCESS_SECRET,
     CONF_TUYA_CLOUD_ENDPOINT,
@@ -29,6 +30,7 @@ from custom_components.aerostate.const import (
     IR_PROVIDER_TUYA,
     IR_PROVIDER_TUYA_CLOUD,
 )
+from custom_components.aerostate.packs.tuya.daikin import loader as daikin_loader
 from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
 from custom_components.aerostate.providers import tuya_raw_code_library
 
@@ -86,6 +88,23 @@ def _write_portable_pack(tmp_path, *, device_name: str, commands: dict[str, str]
                 "commands": commands,
             },
         ),
+        encoding="utf-8",
+    )
+
+
+def _write_daikin_set(directory: Path, number: int) -> None:
+    directory.mkdir(exist_ok=True)
+    pack_id = f"daikin_tuya_set_{number:03d}"
+    (directory / f"{pack_id}.py").write_text(
+        "METADATA = {\n"
+        f"  'pack_id': '{pack_id}', 'display_name': 'Daikin set {number:03d}',\n"
+        "  'brand': 'Daikin', 'provider': 'tuya_local',\n"
+        f"  'remote_index': '{number}', 'source': 'test', 'temp_range': [16, 30],\n"
+        "  'fan_modes': ['auto'], 'swing_support': True,\n"
+        "  'generated_at': '2026-06-06T00:00:00Z', 'payload_format': 'localtuya_rc_raw'\n"
+        "}\n"
+        f"CODES = {{'power_on': 'raw:on{number}', 'power_off': 'raw:off{number}', "
+        f"'cool_t24_fauto': 'raw:cool{number}', 'swing_vertical': 'raw:swing{number}'}}\n",
         encoding="utf-8",
     )
 
@@ -298,6 +317,124 @@ async def test_tuya_device_step_accepts_daikin_builtin_pack_without_cloud_or_raw
     assert result["description_placeholders"]["heat_supported"] == "No"
     assert result["description_placeholders"]["dry_supported"] == "No"
     assert result["description_placeholders"]["code_source_status"] == "Pre-generated Tuya code pack selected. No learning required."
+
+
+@pytest.mark.asyncio
+async def test_daikin_pack_test_ui_lists_local_sets_and_sends_one_selected_command(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    daikin_dir = tmp_path / "daikin"
+    _write_daikin_set(daikin_dir, 1)
+    _write_daikin_set(daikin_dir, 2)
+    monkeypatch.setattr(daikin_loader, "_pack_dir", lambda: daikin_dir)
+    sent: list[tuple[str, str]] = []
+
+    class _Manager:
+        def __init__(self, _hass, _remote, _device, pack_id=None) -> None:
+            self.pack_id = pack_id
+
+        async def async_test_pack_command(self, command: str) -> None:
+            sent.append((str(self.pack_id), command))
+
+    monkeypatch.setattr(
+        "custom_components.aerostate.providers.tuya_ir_manager.TuyaIRManager",
+        _Manager,
+    )
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+    flow._tuya_data = {
+        CONF_TUYA_IR_ENTITY: "remote.test_ir",
+        CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+        CONF_TUYA_MODEL_PACK: "daikin_tuya_set_001",
+    }
+
+    form = await flow.async_step_daikin_pack_test()
+    result = await flow.async_step_daikin_pack_test(
+        {
+            "daikin_pack_id": "daikin_tuya_set_002",
+            "daikin_command": "power_on",
+            "daikin_pack_action": "test",
+        }
+    )
+
+    assert form["step_id"] == "daikin_pack_test"
+    assert form["description_placeholders"]["pack_count"] == "2"
+    assert result["step_id"] == "daikin_pack_test"
+    assert sent == [("daikin_tuya_set_002", "power_on")]
+
+
+@pytest.mark.asyncio
+async def test_tuya_device_step_opens_manual_test_ui_for_imported_daikin_set(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    daikin_dir = tmp_path / "daikin"
+    _write_daikin_set(daikin_dir, 1)
+    monkeypatch.setattr(daikin_loader, "_pack_dir", lambda: daikin_dir)
+    daikin_loader.load_daikin_tuya_pack("daikin_tuya_set_001")
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "daikin_tuya_set_001",
+        }
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "daikin_pack_test"
+    assert result["description_placeholders"]["pack_count"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_daikin_pack_test_ui_requires_test_before_confirm_and_saves_selection(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    daikin_dir = tmp_path / "daikin"
+    _write_daikin_set(daikin_dir, 1)
+    monkeypatch.setattr(daikin_loader, "_pack_dir", lambda: daikin_dir)
+    monkeypatch.setattr(
+        "custom_components.aerostate.providers.tuya_ir_manager.TuyaIRManager.async_test_pack_command",
+        AsyncMock(),
+    )
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+    flow._tuya_data = {
+        CONF_TUYA_IR_ENTITY: "remote.test_ir",
+        CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+        CONF_TUYA_MODEL_PACK: "daikin_tuya_set_001",
+    }
+
+    blocked = await flow.async_step_daikin_pack_test(
+        {
+            "daikin_pack_id": "daikin_tuya_set_001",
+            "daikin_command": "power_on",
+            "daikin_pack_action": "confirm",
+        }
+    )
+    await flow.async_step_daikin_pack_test(
+        {
+            "daikin_pack_id": "daikin_tuya_set_001",
+            "daikin_command": "power_on",
+            "daikin_pack_action": "test",
+        }
+    )
+    confirmed = await flow.async_step_daikin_pack_test(
+        {
+            "daikin_pack_id": "daikin_tuya_set_001",
+            "daikin_command": "power_on",
+            "daikin_pack_action": "confirm",
+        }
+    )
+
+    assert blocked["errors"] == {"base": "daikin_pack_not_tested"}
+    assert confirmed["step_id"] == "tuya_confirm"
+    assert flow._tuya_data[CONF_SELECTED_TUYA_PACK_ID] == "daikin_tuya_set_001"
+    assert get_tuya_pack("daikin_tuya_set_001").brand == "Daikin"
 
 
 @pytest.mark.asyncio

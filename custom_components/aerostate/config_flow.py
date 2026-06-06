@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import voluptuous as vol
@@ -19,6 +20,7 @@ from .const import (
     CONF_MODEL_PACK,
     CONF_NAME,
     CONF_POWER_SENSOR,
+    CONF_SELECTED_TUYA_PACK_ID,
     CONF_TEMP_SENSOR,
     CONF_TUYA_CLOUD_ACCESS_ID,
     CONF_TUYA_CLOUD_ACCESS_SECRET,
@@ -70,6 +72,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._tuya_data: dict[str, Any] = {}
         self._tuya_cloud_data: dict[str, Any] = {}
         self._tuya_setup_warning: str = ""
+        self._daikin_tested_pack_ids: set[str] = set()
+        self._last_daikin_pack_test_at: float = 0.0
         self._validation_summary: dict[str, Any] = {
             "status": "not_run",
             "transport_ok": False,
@@ -256,12 +260,14 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.FlowResult:
         """Collect Tuya IR blaster connection details."""
+        from .packs.tuya.daikin.loader import list_daikin_tuya_packs
         from .packs.tuya.registry import get_tuya_pack, get_tuya_pack_options_for_ui
         from .providers.learned_code_resolver import get_coverage_summary
         from .providers.localtuya_rc_storage import list_available_code_sources, read_learned_codes
 
         errors: dict[str, str] = {}
         tuya_pack_options = get_tuya_pack_options_for_ui()
+        imported_daikin_packs = list_daikin_tuya_packs()
         code_sources = list_available_code_sources(self.hass)
 
         if not tuya_pack_options:
@@ -324,6 +330,14 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ).strip()
                 self._tuya_data[CONF_TUYA_MODEL_PACK] = selected_pack_id
                 self._selected_ir_provider = IR_PROVIDER_TUYA
+                try:
+                    from .packs.tuya.daikin.loader import get_daikin_tuya_pack
+
+                    get_daikin_tuya_pack(selected_pack_id)
+                except KeyError:
+                    pass
+                else:
+                    return await self.async_step_daikin_pack_test()
                 return await self.async_step_tuya_confirm()
 
         return self.async_show_form(
@@ -338,8 +352,136 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "Tuya IR remote entity directly. It does not need Tuya Cloud, Access ID, "
                     "infrared_id, remote_id, learned commands, or a raw-code source name. "
                     "Learned LG-style packs can still use portable raw-code JSON files in "
-                    "/config/aerostate_tuya_raw_codes/ or localtuya_rc storage/backups."
+                    "/config/aerostate_tuya_raw_codes/ or localtuya_rc storage/backups. "
+                    f"Imported Smart Life-style Daikin sets installed: {len(imported_daikin_packs)}. "
+                    "Imported sets appear in the command-pack list and open a manual Test/Confirm "
+                    "screen; AeroState never auto-cycles them."
                 ),
+            },
+        )
+
+    async def async_step_daikin_pack_test(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.FlowResult:
+        """Manually test one imported Daikin Tuya set, then confirm it."""
+        from .packs.tuya.daikin.loader import (
+            get_daikin_tuya_pack,
+            list_daikin_tuya_packs,
+            load_daikin_tuya_pack,
+        )
+        from .providers.tuya_ir_manager import TuyaIRManager
+
+        packs = list_daikin_tuya_packs()
+        if not packs:
+            return self.async_abort(reason="no_daikin_tuya_sets_available")
+
+        pack_options = [
+            selector.SelectOptionDict(
+                value=pack.pack_id,
+                label=f"{pack.display_name} (remote_index={pack.metadata['remote_index']})",
+            )
+            for pack in packs
+        ]
+        selected_pack_id = str(
+            (user_input or {}).get(
+                "daikin_pack_id",
+                self._tuya_data.get(CONF_TUYA_MODEL_PACK, packs[0].pack_id),
+            )
+        ).strip()
+        try:
+            selected_info = get_daikin_tuya_pack(selected_pack_id)
+        except KeyError:
+            selected_info = packs[0]
+            selected_pack_id = selected_info.pack_id
+
+        command_options = [
+            selector.SelectOptionDict(value=command, label=command)
+            for command in selected_info.available_commands
+        ]
+        default_command = (
+            "power_on"
+            if "power_on" in selected_info.available_commands
+            else selected_info.available_commands[0]
+        )
+        errors: dict[str, str] = {}
+        status = "Choose one set and one command. Test sends only that command."
+
+        if user_input is not None:
+            action = str(user_input.get("daikin_pack_action", "test")).strip().lower()
+            command = str(user_input.get("daikin_command", default_command)).strip()
+            if command not in selected_info.available_commands:
+                errors["base"] = "daikin_command_not_available"
+            elif action == "confirm":
+                if selected_pack_id not in self._daikin_tested_pack_ids:
+                    errors["base"] = "daikin_pack_not_tested"
+                else:
+                    self._tuya_data[CONF_TUYA_MODEL_PACK] = selected_pack_id
+                    self._tuya_data[CONF_SELECTED_TUYA_PACK_ID] = selected_pack_id
+                    self._tuya_setup_warning = "Manually tested Daikin local pack selected."
+                    return await self.async_step_tuya_confirm()
+            else:
+                now = time.monotonic()
+                if now - self._last_daikin_pack_test_at < 2.0:
+                    errors["base"] = "daikin_pack_test_cooldown"
+                else:
+                    remote_entity = str(self._tuya_data.get(CONF_TUYA_IR_ENTITY, ""))
+                    device_name = str(
+                        self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME)
+                    )
+                    try:
+                        load_daikin_tuya_pack(selected_pack_id)
+                        manager = TuyaIRManager(
+                            self.hass,
+                            remote_entity,
+                            device_name,
+                            pack_id=selected_pack_id,
+                        )
+                        await manager.async_test_pack_command(command)
+                    except Exception:
+                        _LOGGER.exception(
+                            "Daikin Tuya manual test failed pack_id=%s command=%s",
+                            selected_pack_id,
+                            command,
+                        )
+                        errors["base"] = "daikin_pack_test_failed"
+                    else:
+                        self._last_daikin_pack_test_at = now
+                        self._daikin_tested_pack_ids.add(selected_pack_id)
+                        self._tuya_data[CONF_TUYA_MODEL_PACK] = selected_pack_id
+                        status = (
+                            f"Sent {command} from {selected_info.display_name}. "
+                            "If the AC responded, select Confirm this pack."
+                        )
+
+        schema = vol.Schema(
+            {
+                vol.Required("daikin_pack_id", default=selected_pack_id): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=pack_options, mode="dropdown"),
+                ),
+                vol.Required("daikin_command", default=default_command): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=command_options, mode="dropdown"),
+                ),
+                vol.Required("daikin_pack_action", default="test"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="test", label="Test one command"),
+                            selector.SelectOptionDict(value="confirm", label="Confirm this pack"),
+                        ],
+                        mode="list",
+                    ),
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="daikin_pack_test",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "pack_count": str(len(packs)),
+                "status": status,
+                "selected_pack": selected_info.display_name,
+                "remote_index": str(selected_info.metadata["remote_index"]),
             },
         )
 

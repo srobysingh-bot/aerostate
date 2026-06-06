@@ -1,29 +1,23 @@
 # Release Notes
 
-## AeroState v1.1.0
+## AeroState v1.1.1
 
-This release adds isolated local Daikin Tuya code-set support while preserving
-existing LG Tuya and Broadlink behavior.
+This patch adds the missing Home Assistant manual-test UI for imported local
+Daikin Tuya code sets.
 
 ### Added
 
-- One-time Tuya Cloud importer for local Daikin code-set generation.
-- Isolated local Daikin pack loader with payload and required-command validation.
-- `aerostate.test_tuya_pack` for one-command manual pack testing.
-- `aerostate.confirm_tuya_pack` for selecting the only Daikin runtime pack.
-- Offline Daikin runtime control with OFF-to-ON power sequencing.
+- Imported Daikin set count on the Tuya IR Setup screen.
+- Dedicated set, command, and Test/Confirm selectors.
+- Automatic transition into manual testing when an imported Daikin set is selected.
 
 ### Safety
 
-- No automatic pack cycling.
-- No Tuya Cloud calls during normal climate control.
-- Test commands do not update climate assumed state.
-- Daikin runtime remains isolated from LG Tuya and Broadlink providers.
-- Full payloads are not logged.
+- Confirmation is blocked until the selected set has been tested.
+- Each test sends one command only, with a two-second cooldown.
+- No automatic pack cycling or runtime Tuya Cloud calls.
 
 ### Verification
 
-- Existing LG Tuya regression coverage passes.
-- Existing Broadlink regression coverage passes.
-- Daikin power-off sends exactly once.
-- Full test suite passes.
+- Manual-test UI flow and confirmation behavior are covered by tests.
+- Existing LG Tuya and Broadlink regressions continue to pass.

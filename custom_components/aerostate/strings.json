@@ -29,6 +29,15 @@
         "description": "Raw-code source: **{device_name}**\nStatus: {code_source_status}\n\nLearned codes found: {total_codes}\n\nCool mode (auto fan): temps {cool_temps_auto}\nCool mode (specific fan): temps {cool_temps_fan}\nFan-only codes: {fan_codes}\nPower off: {has_power_off}\nHeat mode: {heat_supported}\nDry mode: {dry_supported}\n\nGaps: {gaps}\n\nClick Submit to create the entry.",
         "data": {}
       },
+      "daikin_pack_test": {
+        "title": "Test Daikin Tuya code sets",
+        "description": "{pack_count} local Daikin code sets are available.\n\nSelected: **{selected_pack}** (remote_index={remote_index})\n\n{status}\n\nTest sets manually one at a time. AeroState never automatically cycles through every set.",
+        "data": {
+          "daikin_pack_id": "Daikin code set",
+          "daikin_command": "Command to test",
+          "daikin_pack_action": "Action"
+        }
+      },
       "tuya_cloud_device": {
         "title": "Tuya Cloud Daikin Setup",
         "description": "Configure Tuya's AC code-library route for a Daikin virtual remote.\n\n{setup_hint}",
@@ -97,7 +106,8 @@
       "already_configured": "This controller and model pack are already configured.",
       "no_tuya_packs_available": "No Tuya IR packs are available. Add a Tuya pack to packs/tuya/ first.",
       "tuya_pack_not_found": "Selected Tuya IR pack is not available.",
-      "tuya_cloud_pack_not_found": "Selected Tuya Cloud AC pack is not available."
+      "tuya_cloud_pack_not_found": "Selected Tuya Cloud AC pack is not available.",
+      "no_daikin_tuya_sets_available": "No imported Daikin Tuya code sets are installed. Run scripts/import_tuya_daikin_codes.py once, then install the generated files under custom_components/aerostate/packs/tuya/daikin/."
     },
     "error": {
       "validation_transport_unavailable": "Broadlink transport is unavailable.",
@@ -111,7 +121,11 @@
       "tuya_pack_not_found": "Selected Tuya IR pack could not be loaded. Check packs/tuya/ directory.",
       "tuya_cloud_endpoint_invalid": "Tuya OpenAPI endpoint must start with http:// or https://.",
       "tuya_cloud_required_fields_missing": "All Tuya Cloud fields are required for the code-library route.",
-      "tuya_cloud_pack_not_found": "Selected Tuya Cloud AC pack could not be loaded."
+      "tuya_cloud_pack_not_found": "Selected Tuya Cloud AC pack could not be loaded.",
+      "daikin_command_not_available": "The selected command is not available in this Daikin code set.",
+      "daikin_pack_not_tested": "Test at least one command from this Daikin code set before confirming it.",
+      "daikin_pack_test_cooldown": "Wait two seconds before testing another command.",
+      "daikin_pack_test_failed": "The Daikin code-set test command failed. Check the selected Tuya remote and Home Assistant logs."
     }
   },
   "options": {

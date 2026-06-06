@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.1 - 2026-06-06
+
+### Added
+- Dedicated Home Assistant config-flow screen for manually testing imported Daikin Tuya code sets.
+- UI selectors for one local set, one command, and either Test or Confirm.
+- Visible imported-set count in the Tuya setup screen.
+
+### Safety
+- Confirmation is blocked until the selected set has been manually tested.
+- Testing sends exactly one selected command and retains the two-second cooldown.
+- AeroState never automatically cycles through all installed Daikin sets.
+
 ## 1.1.0 - 2026-06-06
 
 ### Added
