@@ -712,6 +712,13 @@ def create_tuya_ir_manager_from_entry(hass, entry) -> TuyaIRManager:
     selected_daikin_pack = _opt(CONF_SELECTED_TUYA_PACK_ID)
     if brand == "daikin" and provider == IR_PROVIDER_TUYA:
         pack_id = selected_daikin_pack
+        if pack_id:
+            try:
+                from ..packs.tuya.daikin.loader import load_daikin_tuya_pack
+
+                load_daikin_tuya_pack(str(pack_id), hass=hass)
+            except KeyError:
+                pass
 
     return TuyaIRManager(
         hass=hass,

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import ast
+import pprint
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +50,11 @@ class DaikinTuyaPackInfo:
 
 def _pack_dir() -> Path:
     return Path(__file__).resolve().parent
+
+
+def user_pack_dir(hass) -> Path:
+    """Return the persistent user Daikin pack directory outside HACS files."""
+    return Path(hass.config.path("aerostate_tuya_daikin_codes"))
 
 
 def _literal_assignments(path: Path) -> dict[str, Any]:
@@ -131,33 +138,46 @@ def _pack_info(path: Path) -> DaikinTuyaPackInfo:
     )
 
 
-def list_daikin_tuya_packs(*, directory: Path | None = None) -> list[DaikinTuyaPackInfo]:
-    """List valid local Daikin packs, silently excluding invalid files."""
-    root = directory or _pack_dir()
+def _pack_roots(*, hass=None, directory: Path | None = None) -> list[Path]:
+    if directory is not None:
+        return [directory]
+    roots = [_pack_dir()]
+    if hass is not None and getattr(getattr(hass, "config", None), "path", None):
+        roots.append(user_pack_dir(hass))
+    return roots
+
+
+def list_daikin_tuya_packs(*, hass=None, directory: Path | None = None) -> list[DaikinTuyaPackInfo]:
+    """List valid bundled and user Daikin packs, excluding invalid files."""
     packs: list[DaikinTuyaPackInfo] = []
-    for path in sorted(root.glob("*.py")):
-        if path.name in {"__init__.py", "loader.py"} or path.name.startswith("_"):
-            continue
-        try:
-            packs.append(_pack_info(path))
-        except DaikinTuyaPackValidationError:
-            continue
-    return packs
+    seen: set[str] = set()
+    for root in _pack_roots(hass=hass, directory=directory):
+        for path in sorted(root.glob("*.py")):
+            if path.name in {"__init__.py", "loader.py"} or path.name.startswith("_"):
+                continue
+            try:
+                pack = _pack_info(path)
+            except DaikinTuyaPackValidationError:
+                continue
+            if pack.pack_id not in seen:
+                packs.append(pack)
+                seen.add(pack.pack_id)
+    return sorted(packs, key=lambda pack: pack.pack_id)
 
 
-def get_daikin_tuya_pack(pack_id: str, *, directory: Path | None = None) -> DaikinTuyaPackInfo:
+def get_daikin_tuya_pack(pack_id: str, *, hass=None, directory: Path | None = None) -> DaikinTuyaPackInfo:
     """Return one valid local Daikin pack by ID."""
-    for pack in list_daikin_tuya_packs(directory=directory):
+    for pack in list_daikin_tuya_packs(hass=hass, directory=directory):
         if pack.pack_id == pack_id:
             return pack
     raise KeyError(f"Daikin Tuya local pack not found: {pack_id}")
 
 
-def load_daikin_tuya_pack(pack_id: str, *, directory: Path | None = None) -> TuyaIRPack:
+def load_daikin_tuya_pack(pack_id: str, *, hass=None, directory: Path | None = None) -> TuyaIRPack:
     """Build and register a runtime TuyaIRPack from a local Daikin code set."""
     from ..registry import register_tuya_pack
 
-    info = get_daikin_tuya_pack(pack_id, directory=directory)
+    info = get_daikin_tuya_pack(pack_id, hass=hass, directory=directory)
     metadata, codes = _validate_pack(info.path)
     temp_range = metadata.get("temp_range", [16, 30])
     if not isinstance(temp_range, (list, tuple)) or len(temp_range) != 2:
@@ -201,6 +221,55 @@ def load_daikin_tuya_pack(pack_id: str, *, directory: Path | None = None) -> Tuy
     return pack
 
 
+def write_daikin_tuya_pack(
+    output: Path,
+    sequence: int,
+    remote_index: str,
+    codes: dict[str, str],
+) -> Path:
+    """Validate and save one imported Tuya Daikin set as a data-only pack."""
+    missing = sorted(REQUIRED_COMMANDS - codes.keys())
+    if missing:
+        raise DaikinTuyaPackValidationError(
+            f"remote_index={remote_index} missing required commands: {', '.join(missing)}"
+        )
+    if any(value.lower().startswith("b64:") for value in codes.values()):
+        raise DaikinTuyaPackValidationError(
+            f"remote_index={remote_index} contains a Broadlink/native-b64 payload"
+        )
+
+    pack_id = f"daikin_tuya_set_{sequence:03d}"
+    fans = sorted(
+        {match.group(1) for label in codes if (match := re.search(r"_f([a-z0-9_]+)$", label))}
+    )
+    temps = sorted(
+        {int(match.group(1)) for label in codes if (match := re.search(r"_t(\d+)_", label))}
+    )
+    metadata = {
+        "pack_id": pack_id,
+        "display_name": f"Daikin Tuya code set {sequence:03d}",
+        "brand": "Daikin",
+        "provider": "tuya_local",
+        "remote_index": remote_index,
+        "source": "Tuya Cloud IR code library one-time import",
+        "temp_range": [min(temps), max(temps)] if temps else [16, 30],
+        "fan_modes": fans or ["auto"],
+        "swing_support": "swing_vertical" in codes,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "payload_format": "localtuya_rc_raw",
+    }
+    output.mkdir(parents=True, exist_ok=True)
+    path = output / f"{pack_id}.py"
+    path.write_text(
+        '"""Generated Daikin Tuya local IR code-set pack. Do not edit manually."""\n\n'
+        f"METADATA = {pprint.pformat(metadata, sort_dicts=True, width=100)}\n\n"
+        f"CODES = {pprint.pformat(dict(sorted(codes.items())), sort_dicts=True, width=100)}\n",
+        encoding="utf-8",
+    )
+    _validate_pack(path)
+    return path
+
+
 def register_local_daikin_tuya_packs() -> None:
     """Register every valid bundled/imported Daikin local pack."""
     for info in list_daikin_tuya_packs():
@@ -214,4 +283,6 @@ __all__ = [
     "list_daikin_tuya_packs",
     "load_daikin_tuya_pack",
     "register_local_daikin_tuya_packs",
+    "user_pack_dir",
+    "write_daikin_tuya_pack",
 ]

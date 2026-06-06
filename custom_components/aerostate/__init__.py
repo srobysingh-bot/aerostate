@@ -461,7 +461,7 @@ async def _async_handle_test_tuya_pack(hass: HomeAssistant, call: ServiceCall) -
     if brand != "daikin" or not pack_id or not command:
         raise HomeAssistantError("brand=daikin, pack_id, and command are required")
 
-    pack = load_daikin_tuya_pack(pack_id)
+    pack = load_daikin_tuya_pack(pack_id, hass=hass)
     if pack.resolve_by_label(command) is None:
         raise HomeAssistantError(f"Command '{command}' is not available in pack '{pack_id}'")
 
@@ -492,7 +492,7 @@ async def _async_handle_confirm_tuya_pack(hass: HomeAssistant, call: ServiceCall
     pack_id = str(call.data.get("pack_id", "")).strip()
     if brand != "daikin" or not pack_id:
         raise HomeAssistantError("brand=daikin and pack_id are required")
-    load_daikin_tuya_pack(pack_id)
+    load_daikin_tuya_pack(pack_id, hass=hass)
 
     new_data = dict(entry.data)
     new_options = dict(entry.options)

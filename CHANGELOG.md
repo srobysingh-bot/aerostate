@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.2 - 2026-06-06
+
+### Added
+- One-time Daikin Tuya code-set import flow inside Home Assistant.
+- Temporary credential form that does not store Tuya credentials in the config entry.
+- Persistent imported-pack storage under `/config/aerostate_tuya_daikin_codes/`.
+
+### Changed
+- Imported user packs are discovered during setup, options, testing, services, and runtime.
+- The Daikin import choice appears before the command-pack selector in Tuya IR Setup.
+
+### Safety
+- Only complete validated local packs are saved; incomplete Tuya sets are skipped.
+- Runtime remains local and uses only the manually tested and confirmed pack.
+
 ## 1.1.1 - 2026-06-06
 
 ### Added

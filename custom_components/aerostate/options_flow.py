@@ -175,6 +175,11 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
         """Edit Broadlink entity, pack, optional sensors, and title."""
+        from .packs.tuya.daikin.loader import list_daikin_tuya_packs, load_daikin_tuya_pack
+
+        for imported_pack in list_daikin_tuya_packs(hass=self.hass):
+            load_daikin_tuya_pack(imported_pack.pack_id, hass=self.hass)
+
         registry = get_registry()
         brand = self._config_entry.data.get(CONF_BRAND, "")
         packs = registry.list_brand_packs(brand)

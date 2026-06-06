@@ -33,6 +33,7 @@ from custom_components.aerostate.const import (
 from custom_components.aerostate.packs.tuya.daikin import loader as daikin_loader
 from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
 from custom_components.aerostate.providers import tuya_raw_code_library
+from custom_components.aerostate.providers.tuya_daikin_importer import DaikinImportResult
 
 
 @pytest.fixture(autouse=True)
@@ -204,6 +205,7 @@ def test_tuya_device_step_has_human_readable_labels() -> None:
         CONF_TUYA_IR_ENTITY,
         CONF_TUYA_DEVICE_NAME,
         CONF_TUYA_MODEL_PACK,
+        "daikin_setup_action",
     }
 
     assert set(labels) == expected
@@ -211,6 +213,68 @@ def test_tuya_device_step_has_human_readable_labels() -> None:
         assert label
         assert label != key
     assert "Raw-code" in labels[CONF_TUYA_DEVICE_NAME]
+
+
+@pytest.mark.asyncio
+async def test_tuya_device_step_routes_to_one_time_daikin_import_without_storing_action(
+    tmp_path,
+) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "lg.akb75415308.localtuya_rc.protocol.v1",
+            "daikin_setup_action": "import_daikin",
+        }
+    )
+
+    assert result["step_id"] == "daikin_import"
+    assert "daikin_setup_action" not in flow._tuya_data
+    assert CONF_TUYA_MODEL_PACK not in flow._tuya_data
+
+
+@pytest.mark.asyncio
+async def test_daikin_import_step_does_not_store_credentials_and_opens_tester(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    daikin_dir = tmp_path / "aerostate_tuya_daikin_codes"
+    _write_daikin_set(daikin_dir, 1)
+    imported_credentials: list[dict[str, str]] = []
+
+    async def _import(_hass, **kwargs):
+        imported_credentials.append(kwargs)
+        daikin_loader.load_daikin_tuya_pack("daikin_tuya_set_001", hass=_hass)
+        return DaikinImportResult(1, 1, 0, ("daikin_tuya_set_001",))
+
+    monkeypatch.setattr(
+        "custom_components.aerostate.providers.tuya_daikin_importer.async_import_daikin_tuya_codes",
+        _import,
+    )
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+    flow._tuya_data = {
+        CONF_TUYA_IR_ENTITY: "remote.test_ir",
+        CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+    }
+
+    result = await flow.async_step_daikin_import(
+        {
+            CONF_TUYA_CLOUD_ENDPOINT: "https://openapi.tuyain.com",
+            CONF_TUYA_CLOUD_ACCESS_ID: "temporary-id",
+            CONF_TUYA_CLOUD_ACCESS_SECRET: "temporary-secret",
+            CONF_TUYA_INFRARED_ID: "temporary-infrared-id",
+        }
+    )
+
+    assert result["step_id"] == "daikin_pack_test"
+    assert imported_credentials[0]["access_secret"] == "temporary-secret"
+    assert CONF_TUYA_CLOUD_ACCESS_ID not in flow._tuya_data
+    assert CONF_TUYA_CLOUD_ACCESS_SECRET not in flow._tuya_data
+    assert CONF_TUYA_INFRARED_ID not in flow._tuya_data
 
 
 def test_tuya_device_step_explains_portable_code_source() -> None:

@@ -2,7 +2,7 @@
 
 AeroState is a Home Assistant custom integration that exposes supported IR air conditioners as native climate entities.
 
-Release: v1.1.1
+Release: v1.1.2
 
 ## Installation
 
@@ -52,25 +52,25 @@ Release: v1.1.1
 5. Add the created climate entity to a dashboard thermostat card.
 
 For Daikin ACs using a Tuya IR blaster, import code-set packs once, test packs
-one command at a time with `aerostate.test_tuya_pack`, then save the working pack
-with `aerostate.confirm_tuya_pack`. Runtime control uses only that confirmed
-local pack.
+one command at a time, then confirm the working pack. Runtime control uses only
+that confirmed local pack.
 
 ### Daikin Code-Set UI
 
 The Tuya IR Setup screen shows the number of imported Smart Life-style Daikin
-sets installed locally. Imported sets appear in the **Tuya IR command pack**
-list. Selecting one opens a dedicated screen where you can:
+sets installed locally. To import sets directly from Home Assistant:
 
-1. Select one Daikin code set.
-2. Select one command such as `power_on`.
-3. Test that single command.
-4. Confirm the pack only after the AC responds.
+1. Select **Import Daikin code sets from Tuya once** under **Daikin code-set setup**.
+2. Select the local Tuya IR remote entity and submit.
+3. Enter the Tuya OpenAPI endpoint, Access ID, Access Secret, and IR blaster device ID.
+4. Select one imported Daikin set and one command such as `power_on`.
+5. Test that single command and confirm the pack only after the AC responds.
 
-The repository does not contain fabricated Daikin payloads. If the imported-set
-count is `0`, run `scripts/import_tuya_daikin_codes.py` once with your Tuya
-credentials, place the generated files in
-`custom_components/aerostate/packs/tuya/daikin/`, then restart Home Assistant.
+Credentials are used only during the import request and are not saved in the
+integration config entry. Valid generated packs persist under
+`/config/aerostate_tuya_daikin_codes/`, outside HACS-managed integration files.
+The repository does not contain fabricated Daikin payloads. Tuya sets that do
+not contain the required local commands are skipped.
 
 ## Troubleshooting
 

@@ -159,7 +159,7 @@ async def test_test_tuya_pack_sends_one_command_without_climate_or_cloud(monkeyp
 
     monkeypatch.setattr(
         "custom_components.aerostate.packs.tuya.daikin.loader.load_daikin_tuya_pack",
-        lambda _pack_id: _Pack(),
+        lambda _pack_id, **_kwargs: _Pack(),
     )
     monkeypatch.setattr("custom_components.aerostate.providers.tuya_ir_manager.TuyaIRManager", _Manager)
     call = SimpleNamespace(
@@ -199,7 +199,7 @@ async def test_confirm_tuya_pack_saves_selected_pack_id(monkeypatch) -> None:
     hass = _hass(entry)
     monkeypatch.setattr(
         "custom_components.aerostate.packs.tuya.daikin.loader.load_daikin_tuya_pack",
-        lambda _pack_id: object(),
+        lambda _pack_id, **_kwargs: object(),
     )
 
     await integration._async_handle_confirm_tuya_pack(

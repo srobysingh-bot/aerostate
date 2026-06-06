@@ -260,14 +260,16 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.FlowResult:
         """Collect Tuya IR blaster connection details."""
-        from .packs.tuya.daikin.loader import list_daikin_tuya_packs
+        from .packs.tuya.daikin.loader import list_daikin_tuya_packs, load_daikin_tuya_pack
         from .packs.tuya.registry import get_tuya_pack, get_tuya_pack_options_for_ui
         from .providers.learned_code_resolver import get_coverage_summary
         from .providers.localtuya_rc_storage import list_available_code_sources, read_learned_codes
 
         errors: dict[str, str] = {}
+        imported_daikin_packs = list_daikin_tuya_packs(hass=self.hass)
+        for imported_pack in imported_daikin_packs:
+            load_daikin_tuya_pack(imported_pack.pack_id, hass=self.hass)
         tuya_pack_options = get_tuya_pack_options_for_ui()
-        imported_daikin_packs = list_daikin_tuya_packs()
         code_sources = list_available_code_sources(self.hass)
 
         if not tuya_pack_options:
@@ -290,6 +292,21 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_TUYA_DEVICE_NAME, default=default_code_source): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
                 ),
+                vol.Required("daikin_setup_action", default="use_installed"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(
+                                value="use_installed",
+                                label="Use an installed command pack",
+                            ),
+                            selector.SelectOptionDict(
+                                value="import_daikin",
+                                label="Import Daikin code sets from Tuya once",
+                            ),
+                        ],
+                        mode="list",
+                    ),
+                ),
                 vol.Required(CONF_TUYA_MODEL_PACK, default=default_pack): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=tuya_pack_options),
                 ),
@@ -298,12 +315,14 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             remote_entity = user_input.get(CONF_TUYA_IR_ENTITY)
+            setup_action = str(user_input.get("daikin_setup_action", "use_installed")).strip()
             selected_pack_id = str(user_input.get(CONF_TUYA_MODEL_PACK, default_pack)).strip()
-            try:
-                selected_pack = get_tuya_pack(selected_pack_id)
-            except Exception:
-                selected_pack = None
-                errors["base"] = "tuya_pack_not_found"
+            selected_pack = None
+            if setup_action != "import_daikin":
+                try:
+                    selected_pack = get_tuya_pack(selected_pack_id)
+                except Exception:
+                    errors["base"] = "tuya_pack_not_found"
 
             state = self.hass.states.get(remote_entity)
             if state is None and not errors:
@@ -324,16 +343,23 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._tuya_setup_warning = "Pre-generated Tuya code pack selected. No learning required."
 
             if not errors:
-                self._tuya_data = dict(user_input)
+                self._tuya_data = {
+                    key: value
+                    for key, value in user_input.items()
+                    if key != "daikin_setup_action"
+                }
                 self._tuya_data[CONF_TUYA_DEVICE_NAME] = str(
                     self._tuya_data.get(CONF_TUYA_DEVICE_NAME, default_code_source),
                 ).strip()
-                self._tuya_data[CONF_TUYA_MODEL_PACK] = selected_pack_id
                 self._selected_ir_provider = IR_PROVIDER_TUYA
+                if setup_action == "import_daikin":
+                    self._tuya_data.pop(CONF_TUYA_MODEL_PACK, None)
+                    return await self.async_step_daikin_import()
+                self._tuya_data[CONF_TUYA_MODEL_PACK] = selected_pack_id
                 try:
                     from .packs.tuya.daikin.loader import get_daikin_tuya_pack
 
-                    get_daikin_tuya_pack(selected_pack_id)
+                    get_daikin_tuya_pack(selected_pack_id, hass=self.hass)
                 except KeyError:
                     pass
                 else:
@@ -360,9 +386,81 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_daikin_import(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.FlowResult:
+        """Import Tuya Daikin code sets once without storing cloud credentials."""
+        from .providers.tuya_daikin_importer import async_import_daikin_tuya_codes
+
+        errors: dict[str, str] = {}
+        placeholders = {
+            "status": (
+                "Credentials are used only for this import request and are not saved. "
+                "Generated packs are stored under /config/aerostate_tuya_daikin_codes/."
+            )
+        }
+        if user_input is not None:
+            endpoint = str(user_input.get(CONF_TUYA_CLOUD_ENDPOINT, "")).strip()
+            access_id = str(user_input.get(CONF_TUYA_CLOUD_ACCESS_ID, "")).strip()
+            access_secret = str(user_input.get(CONF_TUYA_CLOUD_ACCESS_SECRET, "")).strip()
+            infrared_id = str(user_input.get(CONF_TUYA_INFRARED_ID, "")).strip()
+            if not endpoint.startswith(("http://", "https://")):
+                errors["base"] = "tuya_cloud_endpoint_invalid"
+            elif not all([access_id, access_secret, infrared_id]):
+                errors["base"] = "daikin_import_fields_missing"
+            else:
+                try:
+                    result = await async_import_daikin_tuya_codes(
+                        self.hass,
+                        endpoint=endpoint,
+                        access_id=access_id,
+                        access_secret=access_secret,
+                        infrared_id=infrared_id,
+                    )
+                except Exception:
+                    _LOGGER.exception("One-time Tuya Daikin code-set import failed")
+                    errors["base"] = "daikin_import_failed"
+                else:
+                    self._tuya_data[CONF_TUYA_MODEL_PACK] = result.pack_ids[0]
+                    placeholders["status"] = (
+                        f"Imported {result.imported_count} valid Daikin sets; "
+                        f"skipped {result.skipped_count}. Credentials were not saved."
+                    )
+                    return await self.async_step_daikin_pack_test(
+                        import_status=placeholders["status"]
+                    )
+
+        return self.async_show_form(
+            step_id="daikin_import",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_TUYA_CLOUD_ENDPOINT,
+                        default=DEFAULT_TUYA_CLOUD_ENDPOINT,
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                    ),
+                    vol.Required(CONF_TUYA_CLOUD_ACCESS_ID): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                    ),
+                    vol.Required(CONF_TUYA_CLOUD_ACCESS_SECRET): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD),
+                    ),
+                    vol.Required(CONF_TUYA_INFRARED_ID): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
     async def async_step_daikin_pack_test(
         self,
         user_input: dict[str, Any] | None = None,
+        *,
+        import_status: str | None = None,
     ) -> config_entries.FlowResult:
         """Manually test one imported Daikin Tuya set, then confirm it."""
         from .packs.tuya.daikin.loader import (
@@ -372,7 +470,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         from .providers.tuya_ir_manager import TuyaIRManager
 
-        packs = list_daikin_tuya_packs()
+        packs = list_daikin_tuya_packs(hass=self.hass)
         if not packs:
             return self.async_abort(reason="no_daikin_tuya_sets_available")
 
@@ -390,7 +488,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         ).strip()
         try:
-            selected_info = get_daikin_tuya_pack(selected_pack_id)
+            selected_info = get_daikin_tuya_pack(selected_pack_id, hass=self.hass)
         except KeyError:
             selected_info = packs[0]
             selected_pack_id = selected_info.pack_id
@@ -405,7 +503,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else selected_info.available_commands[0]
         )
         errors: dict[str, str] = {}
-        status = "Choose one set and one command. Test sends only that command."
+        status = import_status or "Choose one set and one command. Test sends only that command."
 
         if user_input is not None:
             action = str(user_input.get("daikin_pack_action", "test")).strip().lower()
@@ -430,7 +528,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._tuya_data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME)
                     )
                     try:
-                        load_daikin_tuya_pack(selected_pack_id)
+                        load_daikin_tuya_pack(selected_pack_id, hass=self.hass)
                         manager = TuyaIRManager(
                             self.hass,
                             remote_entity,

@@ -79,7 +79,7 @@ def _items(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
     if isinstance(value, dict):
-        for key in ("list", "items", "data", "records"):
+        for key in ("list", "items", "data", "records", "remote_index_list"):
             if isinstance(value.get(key), list):
                 return [item for item in value[key] if isinstance(item, dict)]
     return []
@@ -191,6 +191,7 @@ def main() -> int:
         api.request(
             "GET",
             f"/v2.0/infrareds/{args.infrared_id}/categories/{category_id}/brands/{brand_id}/remote-indexs",
+            {"page": "1", "size": "1000"},
         )
     )
 

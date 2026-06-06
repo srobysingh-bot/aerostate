@@ -1,23 +1,24 @@
 # Release Notes
 
-## AeroState v1.1.1
+## AeroState v1.1.2
 
-This patch adds the missing Home Assistant manual-test UI for imported local
-Daikin Tuya code sets.
+This patch adds the missing one-time Daikin Tuya import choice directly to the
+Home Assistant setup UI.
 
 ### Added
 
-- Imported Daikin set count on the Tuya IR Setup screen.
-- Dedicated set, command, and Test/Confirm selectors.
-- Automatic transition into manual testing when an imported Daikin set is selected.
+- **Import Daikin code sets from Tuya once** choice in Tuya IR Setup.
+- Temporary Tuya credential form; credentials are not saved.
+- Persistent imported packs under `/config/aerostate_tuya_daikin_codes/`.
+- Automatic transition into the manual Test/Confirm screen after a successful import.
 
 ### Safety
 
-- Confirmation is blocked until the selected set has been tested.
-- Each test sends one command only, with a two-second cooldown.
-- No automatic pack cycling or runtime Tuya Cloud calls.
+- Incomplete or incompatible Tuya sets are skipped.
+- Confirmation remains blocked until the selected set has been tested.
+- No automatic pack cycling and no runtime Tuya Cloud calls.
 
 ### Verification
 
-- Manual-test UI flow and confirmation behavior are covered by tests.
+- One-time import persistence and credential isolation are covered by tests.
 - Existing LG Tuya and Broadlink regressions continue to pass.

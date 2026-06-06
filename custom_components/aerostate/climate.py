@@ -1046,8 +1046,17 @@ async def async_setup_entry(
             try:
                 tuya_pack = get_tuya_pack(tuya_pack_id)
             except KeyError:
-                _LOGGER.error("Tuya IR pack '%s' not found in registry.", tuya_pack_id)
-                return False
+                if configured_brand == "daikin":
+                    from .packs.tuya.daikin.loader import load_daikin_tuya_pack
+
+                    try:
+                        tuya_pack = load_daikin_tuya_pack(str(tuya_pack_id), hass=hass)
+                    except KeyError:
+                        _LOGGER.error("Tuya IR pack '%s' not found in registry.", tuya_pack_id)
+                        return False
+                else:
+                    _LOGGER.error("Tuya IR pack '%s' not found in registry.", tuya_pack_id)
+                    return False
 
             pack = tuya_pack.to_model_pack()
             model_pack_id = pack.pack_id

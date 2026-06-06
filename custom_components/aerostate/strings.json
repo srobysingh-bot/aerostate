@@ -21,7 +21,18 @@
         "data": {
           "tuya_ir_entity": "Tuya IR Remote Entity",
           "tuya_device_name": "Raw-code source name (learned packs only)",
-          "tuya_model_pack": "Tuya IR command pack"
+          "tuya_model_pack": "Tuya IR command pack",
+          "daikin_setup_action": "Daikin code-set setup"
+        }
+      },
+      "daikin_import": {
+        "title": "Import Daikin Tuya code sets",
+        "description": "{status}\n\nEnter Tuya OpenAPI credentials and the Tuya IR blaster device ID. This cloud operation runs once to generate local packs.",
+        "data": {
+          "tuya_cloud_endpoint": "Tuya OpenAPI endpoint",
+          "tuya_cloud_access_id": "Tuya Access ID",
+          "tuya_cloud_access_secret": "Tuya Access Secret",
+          "tuya_infrared_id": "Tuya IR blaster device ID"
         }
       },
       "tuya_confirm": {
@@ -125,7 +136,9 @@
       "daikin_command_not_available": "The selected command is not available in this Daikin code set.",
       "daikin_pack_not_tested": "Test at least one command from this Daikin code set before confirming it.",
       "daikin_pack_test_cooldown": "Wait two seconds before testing another command.",
-      "daikin_pack_test_failed": "The Daikin code-set test command failed. Check the selected Tuya remote and Home Assistant logs."
+      "daikin_pack_test_failed": "The Daikin code-set test command failed. Check the selected Tuya remote and Home Assistant logs.",
+      "daikin_import_fields_missing": "Tuya Access ID, Access Secret, and IR blaster device ID are required.",
+      "daikin_import_failed": "Daikin code-set import failed. Verify the Tuya project region, API permissions, credentials, and IR blaster device ID."
     }
   },
   "options": {
