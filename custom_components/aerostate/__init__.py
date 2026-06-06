@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Final
 
 from .const import (
+    CONF_BRAND,
     CONF_BROADLINK_ENTITY,
     CONF_IR_PROVIDER,
     CONF_MODEL_PACK,
+    CONF_SELECTED_TUYA_PACK_ID,
     CONF_TUYA_CLOUD_MODEL_PACK,
     CONF_TUYA_DEVICE_NAME,
     CONF_TUYA_IR_ENTITY,
+    CONF_TUYA_MODEL_PACK,
     DEFAULT_IR_PROVIDER,
     DEFAULT_TUYA_DEVICE_NAME,
     DOMAIN,
@@ -80,7 +84,10 @@ PLATFORMS: Final = [Platform.CLIMATE]
 SERVICE_RUN_SELF_TEST: Final = "run_self_test"
 SERVICE_LEARN_IR_COMMAND: Final = "learn_ir_command"
 SERVICE_EXPORT_TUYA_RAW_CODES: Final = "export_tuya_raw_codes"
+SERVICE_TEST_TUYA_PACK: Final = "test_tuya_pack"
+SERVICE_CONFIRM_TUYA_PACK: Final = "confirm_tuya_pack"
 EVENT_SELF_TEST_RESULT: Final = "aerostate_self_test_result"
+TUYA_PACK_TEST_COOLDOWN_SECONDS: Final = 2.0
 CONFIG_ENTRY_VERSION: Final = 1
 CONFIG_ENTRY_MINOR_VERSION: Final = 0
 
@@ -410,6 +417,97 @@ async def _async_handle_export_tuya_raw_codes(hass: HomeAssistant, call: Service
     _LOGGER.info("Exported AeroState Tuya raw code pack to %s", path)
 
 
+def _require_daikin_tuya_entry(hass: HomeAssistant, call: ServiceCall):
+    """Resolve and validate the target local Daikin Tuya config entry."""
+    entry_id = _resolve_entry_id_from_service(hass, call)
+    entry = hass.config_entries.async_get_entry(entry_id) if entry_id else None
+    if not entry:
+        raise HomeAssistantError("AeroState config entry not found")
+    provider = str(
+        entry.options.get(CONF_IR_PROVIDER, entry.data.get(CONF_IR_PROVIDER, DEFAULT_IR_PROVIDER))
+        or DEFAULT_IR_PROVIDER
+    ).strip().lower()
+    if provider != IR_PROVIDER_TUYA:
+        raise HomeAssistantError("Daikin Tuya pack services require the local Tuya IR provider")
+    configured_brand = str(
+        entry.options.get(CONF_BRAND, entry.data.get(CONF_BRAND, "")) or ""
+    ).strip().lower()
+    if not configured_brand:
+        current_pack_id = entry.options.get(
+            CONF_TUYA_MODEL_PACK,
+            entry.data.get(CONF_TUYA_MODEL_PACK),
+        )
+        if current_pack_id:
+            try:
+                from .packs.tuya.registry import get_tuya_pack
+
+                configured_brand = str(get_tuya_pack(str(current_pack_id)).brand).strip().lower()
+            except Exception:
+                configured_brand = ""
+    if configured_brand != "daikin":
+        raise HomeAssistantError("Daikin Tuya pack services cannot be used by an LG or non-Daikin entry")
+    return entry
+
+
+async def _async_handle_test_tuya_pack(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Send exactly one command from one local Daikin Tuya pack."""
+    from .packs.tuya.daikin.loader import load_daikin_tuya_pack
+    from .providers.tuya_ir_manager import TuyaIRManager
+
+    entry = _require_daikin_tuya_entry(hass, call)
+    brand = str(call.data.get("brand", "")).strip().lower()
+    pack_id = str(call.data.get("pack_id", "")).strip()
+    command = str(call.data.get("command", "")).strip()
+    if brand != "daikin" or not pack_id or not command:
+        raise HomeAssistantError("brand=daikin, pack_id, and command are required")
+
+    pack = load_daikin_tuya_pack(pack_id)
+    if pack.resolve_by_label(command) is None:
+        raise HomeAssistantError(f"Command '{command}' is not available in pack '{pack_id}'")
+
+    cooldowns = hass.data.setdefault(DOMAIN, {}).setdefault("_tuya_pack_test_cooldowns", {})
+    cooldown_key = entry.entry_id
+    now = time.monotonic()
+    if now - float(cooldowns.get(cooldown_key, 0.0)) < TUYA_PACK_TEST_COOLDOWN_SECONDS:
+        raise HomeAssistantError("Wait two seconds before testing another Daikin Tuya command")
+
+    remote_entity = entry.options.get(CONF_TUYA_IR_ENTITY, entry.data.get(CONF_TUYA_IR_ENTITY))
+    device_name = entry.options.get(
+        CONF_TUYA_DEVICE_NAME,
+        entry.data.get(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
+    )
+    if not remote_entity:
+        raise HomeAssistantError("This entry has no Tuya IR remote entity configured")
+    manager = TuyaIRManager(hass, str(remote_entity), str(device_name), pack_id=pack_id)
+    await manager.async_test_pack_command(command)
+    cooldowns[cooldown_key] = now
+
+
+async def _async_handle_confirm_tuya_pack(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Persist the manually confirmed local Daikin Tuya pack."""
+    from .packs.tuya.daikin.loader import load_daikin_tuya_pack
+
+    entry = _require_daikin_tuya_entry(hass, call)
+    brand = str(call.data.get("brand", "")).strip().lower()
+    pack_id = str(call.data.get("pack_id", "")).strip()
+    if brand != "daikin" or not pack_id:
+        raise HomeAssistantError("brand=daikin and pack_id are required")
+    load_daikin_tuya_pack(pack_id)
+
+    new_data = dict(entry.data)
+    new_options = dict(entry.options)
+    new_data[CONF_BRAND] = "Daikin"
+    new_options[CONF_SELECTED_TUYA_PACK_ID] = pack_id
+    new_options[CONF_TUYA_MODEL_PACK] = pack_id
+    hass.config_entries.async_update_entry(entry, data=new_data, options=new_options)
+    await hass.config_entries.async_reload(entry.entry_id)
+    _LOGGER.info(
+        "AeroState: provider=tuya_local brand=Daikin pack_id=%s command=confirm "
+        "mode=runtime cloud_disabled_at_runtime=True",
+        pack_id,
+    )
+
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the AeroState integration from YAML config (not used if config_flow).
 
@@ -441,6 +539,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             await _async_handle_export_tuya_raw_codes(hass, call)
 
         hass.services.async_register(DOMAIN, SERVICE_EXPORT_TUYA_RAW_CODES, _async_export_tuya_raw_codes)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_TEST_TUYA_PACK):
+        async def _async_test_tuya_pack(call: ServiceCall) -> None:
+            await _async_handle_test_tuya_pack(hass, call)
+
+        hass.services.async_register(DOMAIN, SERVICE_TEST_TUYA_PACK, _async_test_tuya_pack)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_CONFIRM_TUYA_PACK):
+        async def _async_confirm_tuya_pack(call: ServiceCall) -> None:
+            await _async_handle_confirm_tuya_pack(hass, call)
+
+        hass.services.async_register(DOMAIN, SERVICE_CONFIRM_TUYA_PACK, _async_confirm_tuya_pack)
 
     return True
 

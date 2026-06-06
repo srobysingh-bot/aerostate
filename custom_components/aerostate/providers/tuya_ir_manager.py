@@ -184,7 +184,15 @@ class TuyaIRManager:
         previously_off = bool(state.get("previously_off", self._last_known_power is not True))
 
         if not wants_power:
-            await self._async_send_raw_command(self._resolve_pack_label("power_off"))
+            power_off_payload = self._resolve_pack_label("power_off")
+            if str(getattr(pack, "brand", "")).strip().lower() == "daikin":
+                _LOGGER.info(
+                    "TuyaIRManager: provider=tuya_local brand=Daikin pack_id=%s command=power_off "
+                    "payload_sha12=%s mode=runtime power_on_sent=False cloud_disabled_at_runtime=True",
+                    self._pack_id or "",
+                    self._payload_hash(power_off_payload),
+                )
+            await self._async_send_raw_command(power_off_payload)
             self._last_known_power = False
             self._last_sent_hvac_mode = None
             self._last_sent_temperature = None
@@ -249,10 +257,19 @@ class TuyaIRManager:
                     )
                 else:
                     power_on_sent = True
-                    _LOGGER.info(
-                        "TuyaIRManager: sending power_on label=power_on payload_sha12=%s",
-                        self._payload_hash(power_on_payload),
-                    )
+                    if str(getattr(pack, "brand", "")).strip().lower() == "daikin":
+                        _LOGGER.info(
+                            "TuyaIRManager: provider=tuya_local brand=Daikin pack_id=%s "
+                            "command=power_on payload_sha12=%s mode=runtime power_on_sent=True "
+                            "cloud_disabled_at_runtime=True",
+                            self._pack_id or "",
+                            self._payload_hash(power_on_payload),
+                        )
+                    else:
+                        _LOGGER.info(
+                            "TuyaIRManager: sending power_on label=power_on payload_sha12=%s",
+                            self._payload_hash(power_on_payload),
+                        )
                     await self._async_send_raw_command(power_on_payload)
                     _LOGGER.debug(
                         "TuyaIRManager: waiting settle %.2fs before combined command %s",
@@ -267,6 +284,15 @@ class TuyaIRManager:
                 power_on_sent,
                 self._payload_hash(combined_payload),
             )
+            if str(getattr(pack, "brand", "")).strip().lower() == "daikin":
+                _LOGGER.info(
+                    "TuyaIRManager: provider=tuya_local brand=Daikin pack_id=%s command=%s "
+                    "payload_sha12=%s mode=runtime power_on_sent=%s cloud_disabled_at_runtime=True",
+                    self._pack_id or "",
+                    combined_key,
+                    self._payload_hash(combined_payload),
+                    power_on_sent,
+                )
             await self._async_send_raw_command(combined_payload)
 
             self._last_known_power = True
@@ -538,6 +564,19 @@ class TuyaIRManager:
             blocking=False,
         )
 
+    async def async_test_pack_command(self, command_label: str) -> None:
+        """Send exactly one selected-pack command without mutating climate tracking."""
+        payload = self._resolve_pack_label(command_label)
+        _LOGGER.info(
+            "TuyaIRManager: provider=tuya_local brand=%s pack_id=%s command=%s "
+            "payload_sha12=%s mode=test cloud_disabled_at_runtime=True",
+            getattr(self._command_pack, "brand", ""),
+            self._pack_id or "",
+            command_label,
+            self._payload_hash(payload),
+        )
+        await self._async_send_raw_command(payload)
+
     async def _async_send_independent_command(
         self,
         label: str,
@@ -654,20 +693,31 @@ class TuyaIRManager:
 def create_tuya_ir_manager_from_entry(hass, entry) -> TuyaIRManager:
     """Build TuyaIRManager from config entry."""
     from ..const import (
+        CONF_BRAND,
+        CONF_IR_PROVIDER,
+        CONF_SELECTED_TUYA_PACK_ID,
         CONF_TUYA_DEVICE_NAME,
         CONF_TUYA_IR_ENTITY,
         CONF_TUYA_MODEL_PACK,
         DEFAULT_TUYA_DEVICE_NAME,
+        IR_PROVIDER_TUYA,
     )
 
     def _opt(key, default=None):
         return entry.options.get(key, entry.data.get(key, default))
 
+    pack_id = _opt(CONF_TUYA_MODEL_PACK)
+    brand = str(_opt(CONF_BRAND, "") or "").strip().lower()
+    provider = str(_opt(CONF_IR_PROVIDER, "") or "").strip().lower()
+    selected_daikin_pack = _opt(CONF_SELECTED_TUYA_PACK_ID)
+    if brand == "daikin" and provider == IR_PROVIDER_TUYA:
+        pack_id = selected_daikin_pack
+
     return TuyaIRManager(
         hass=hass,
         remote_entity_id=_opt(CONF_TUYA_IR_ENTITY),
         device_name=_opt(CONF_TUYA_DEVICE_NAME, DEFAULT_TUYA_DEVICE_NAME),
-        pack_id=_opt(CONF_TUYA_MODEL_PACK),
+        pack_id=pack_id,
     )
 
 

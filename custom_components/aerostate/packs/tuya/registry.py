@@ -2,18 +2,34 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .schema import TuyaIRPack
 
 _TUYA_REGISTRY: dict[str, "TuyaIRPack"] = {}
-_BUILTINS_IMPORTED = True
+_BUILTINS_IMPORTED = False
+_BUILTIN_MODULES = (
+    "daikin_brc4c158_localtuya_v1",
+    "lg_akb75415308_tuya_protocol_v1",
+    "lg_pc09sq_nsj_tuya_v1",
+)
 
 
 def _ensure_builtin_packs() -> None:
-    """Bundled Tuya packs are imported eagerly at module load."""
-    return
+    """Import bundled and generated local Tuya packs exactly once."""
+    global _BUILTINS_IMPORTED
+
+    if _BUILTINS_IMPORTED:
+        return
+    _BUILTINS_IMPORTED = True
+    for module_name in _BUILTIN_MODULES:
+        import_module(f"{__package__}.{module_name}")
+
+    from .daikin.loader import register_local_daikin_tuya_packs
+
+    register_local_daikin_tuya_packs()
 
 
 def register_tuya_pack(pack: "TuyaIRPack") -> None:
@@ -41,8 +57,3 @@ def get_tuya_pack_options_for_ui() -> list[dict]:
         {"value": p.pack_id, "label": f"{p.models[0] if p.models else p.pack_id} ({p.pack_id})"}
         for p in list_tuya_packs()
     ]
-
-
-from . import lg_pc09sq_nsj_tuya_v1 as _lg_pc09sq_nsj_tuya_v1  # noqa: E402,F401
-from . import lg_akb75415308_tuya_protocol_v1 as _lg_akb75415308_tuya_protocol_v1  # noqa: E402,F401
-from . import daikin_brc4c158_localtuya_v1 as _daikin_brc4c158_localtuya_v1  # noqa: E402,F401

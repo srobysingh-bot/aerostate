@@ -369,6 +369,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 title=f"AeroState Tuya IR - {title_suffix}",
                 data={
                     **self._tuya_data,
+                    CONF_BRAND: selected_pack.brand,
                     CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
                 },
             )

@@ -192,7 +192,7 @@
     },
     "tuya_pack_missing": {
       "title": "Tuya IR pack missing",
-      "description": "The configured Tuya IR pack could not be loaded. The pack may have been removed from packs/tuya/."
+      "description": "No confirmed local Daikin Tuya pack is available. Test packs one at a time, then confirm the working pack before runtime control."
     }
   },
   "services": {

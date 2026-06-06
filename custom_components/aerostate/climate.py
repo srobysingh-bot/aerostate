@@ -28,6 +28,7 @@ from .const import (
     CONF_MODEL_PACK,
     CONF_NAME,
     CONF_POWER_SENSOR,
+    CONF_SELECTED_TUYA_PACK_ID,
     CONF_TEMP_SENSOR,
     CONF_TUYA_CLOUD_MODEL_PACK,
     CONF_TUYA_DEVICE_NAME,
@@ -1028,9 +1029,18 @@ async def async_setup_entry(
 
             tuya_remote_entity = entry.options.get(CONF_TUYA_IR_ENTITY, entry.data.get(CONF_TUYA_IR_ENTITY))
             tuya_pack_id = entry.options.get(CONF_TUYA_MODEL_PACK, entry.data.get(CONF_TUYA_MODEL_PACK))
+            configured_brand = str(
+                entry.options.get(CONF_BRAND, entry.data.get(CONF_BRAND, brand)) or ""
+            ).strip().lower()
+            if configured_brand == "daikin":
+                tuya_pack_id = entry.options.get(
+                    CONF_SELECTED_TUYA_PACK_ID,
+                    entry.data.get(CONF_SELECTED_TUYA_PACK_ID),
+                )
             if not all([tuya_remote_entity, tuya_pack_id]):
                 _LOGGER.error(
-                    "Tuya IR entry missing remote entity or model_pack. Go to Options and complete Tuya IR setup.",
+                    "Tuya IR entry missing remote entity or confirmed local pack. "
+                    "Test and confirm a Daikin pack before runtime control."
                 )
                 return False
             try:

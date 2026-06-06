@@ -17,6 +17,7 @@ from .const import (
     CONF_MODEL_PACK,
     CONF_NAME,
     CONF_POWER_SENSOR,
+    CONF_SELECTED_TUYA_PACK_ID,
     CONF_TEMP_SENSOR,
     CONF_TUYA_CLOUD_ACCESS_ID,
     CONF_TUYA_CLOUD_ACCESS_SECRET,
@@ -271,13 +272,22 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                 )
                 try:
-                    selected_pack_obj = get_tuya_pack(str(raw_tuya_pack)).to_model_pack()
+                    selected_tuya_pack = get_tuya_pack(str(raw_tuya_pack))
+                    selected_pack_obj = selected_tuya_pack.to_model_pack()
                 except Exception:
                     return self.async_show_form(
                         step_id="init",
                         data_schema=schema,
                         errors={"base": "tuya_pack_not_found"},
                     )
+                new_data[CONF_BRAND] = selected_tuya_pack.brand
+                if str(selected_tuya_pack.brand).strip().lower() == "daikin":
+                    previous_pack = self._config_entry.options.get(
+                        CONF_TUYA_MODEL_PACK,
+                        self._config_entry.data.get(CONF_TUYA_MODEL_PACK),
+                    )
+                    if str(raw_tuya_pack) != str(previous_pack):
+                        new_options.pop(CONF_SELECTED_TUYA_PACK_ID, None)
             elif sel_ir == IR_PROVIDER_TUYA_CLOUD:
                 from .packs.tuya_cloud.registry import get_tuya_cloud_pack
 

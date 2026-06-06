@@ -88,3 +88,51 @@ export_tuya_raw_codes:
           options:
             - user_library
             - integration_bundle
+
+test_tuya_pack:
+  name: Test one local Daikin Tuya pack command
+  description: Send exactly one command from one local Daikin Tuya code-set pack without changing climate state.
+  fields:
+    entry_id:
+      name: Config entry ID
+      required: false
+      selector:
+        text:
+    brand:
+      name: Brand
+      required: true
+      default: daikin
+      selector:
+        text:
+    pack_id:
+      name: Local Daikin Tuya pack ID
+      required: true
+      selector:
+        text:
+    command:
+      name: Command
+      required: true
+      default: power_on
+      selector:
+        text:
+
+confirm_tuya_pack:
+  name: Confirm local Daikin Tuya pack
+  description: Save a manually tested Daikin Tuya pack as the only local runtime pack.
+  fields:
+    entry_id:
+      name: Config entry ID
+      required: false
+      selector:
+        text:
+    brand:
+      name: Brand
+      required: true
+      default: daikin
+      selector:
+        text:
+    pack_id:
+      name: Confirmed local Daikin Tuya pack ID
+      required: true
+      selector:
+        text:

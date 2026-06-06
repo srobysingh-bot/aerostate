@@ -15,6 +15,7 @@ CONF_IR_PROVIDER = "ir_provider"
 CONF_TUYA_IR_ENTITY = "tuya_ir_entity"
 CONF_TUYA_DEVICE_NAME = "tuya_device_name"
 CONF_TUYA_MODEL_PACK = "tuya_model_pack"
+CONF_SELECTED_TUYA_PACK_ID = "selected_tuya_pack_id"
 DEFAULT_TUYA_DEVICE_NAME = "Living AC IR"
 
 CONF_TUYA_CLOUD_ENDPOINT = "tuya_cloud_endpoint"
