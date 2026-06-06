@@ -25,6 +25,13 @@
           "daikin_setup_action": "Daikin code-set setup"
         }
       },
+      "tuya_brand": {
+        "title": "Select Tuya AC brand",
+        "description": "Choose the AC brand. The next screen will show only compatible installed Tuya local command packs.",
+        "data": {
+          "brand": "Brand"
+        }
+      },
       "daikin_import": {
         "title": "Import Daikin Tuya code sets",
         "description": "{status}\n\nEnter Tuya OpenAPI credentials and the Tuya IR blaster device ID. This cloud operation runs once to generate local packs.",
@@ -129,6 +136,8 @@
       "tuya_remote_entity_unavailable": "Remote entity is unavailable. Check IR blaster power.",
       "tuya_transport_unavailable": "Cannot reach Tuya IR blaster. Check the selected Tuya IR remote entity.",
       "tuya_pack_not_found": "Selected Tuya IR pack could not be loaded. Check packs/tuya/ directory.",
+      "tuya_brand_not_found": "Selected Tuya AC brand is not available.",
+      "tuya_pack_brand_mismatch": "Selected Tuya command pack does not match the configured AC brand.",
       "tuya_cloud_endpoint_invalid": "Tuya OpenAPI endpoint must start with http:// or https://.",
       "tuya_cloud_required_fields_missing": "All Tuya Cloud fields are required for the code-library route.",
       "tuya_cloud_pack_not_found": "Selected Tuya Cloud AC pack could not be loaded.",

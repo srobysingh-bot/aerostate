@@ -51,9 +51,11 @@ def list_tuya_packs() -> list["TuyaIRPack"]:
     return list(_TUYA_REGISTRY.values())
 
 
-def get_tuya_pack_options_for_ui() -> list[dict]:
-    """Return selector options for config and options flows."""
+def get_tuya_pack_options_for_ui(brand: str | None = None) -> list[dict]:
+    """Return selector options, optionally limited to one brand."""
+    normalized_brand = str(brand or "").strip().casefold()
     return [
         {"value": p.pack_id, "label": f"{p.models[0] if p.models else p.pack_id} ({p.pack_id})"}
         for p in list_tuya_packs()
+        if not normalized_brand or str(p.brand).strip().casefold() == normalized_brand
     ]

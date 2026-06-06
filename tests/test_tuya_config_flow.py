@@ -14,6 +14,7 @@ pytest.importorskip("homeassistant")
 
 from custom_components.aerostate.config_flow import AeroStateConfigFlow
 from custom_components.aerostate.const import (
+    CONF_BRAND,
     CONF_IR_PROVIDER,
     CONF_SELECTED_TUYA_PACK_ID,
     CONF_TUYA_CLOUD_ACCESS_ID,
@@ -31,7 +32,8 @@ from custom_components.aerostate.const import (
     IR_PROVIDER_TUYA_CLOUD,
 )
 from custom_components.aerostate.packs.tuya.daikin import loader as daikin_loader
-from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
+from custom_components.aerostate.packs.tuya.registry import get_tuya_pack, register_tuya_pack
+from custom_components.aerostate.packs.tuya.schema import TuyaIRPack
 from custom_components.aerostate.providers import tuya_raw_code_library
 from custom_components.aerostate.providers.tuya_daikin_importer import DaikinImportResult
 
@@ -136,6 +138,13 @@ def _schema_default(schema: vol.Schema, key: str):
     raise KeyError(key)
 
 
+def _selector_options(schema: vol.Schema, key: str) -> list[dict]:
+    for marker, field_selector in schema.schema.items():
+        if isinstance(marker, (vol.Required, vol.Optional)) and marker.schema == key:
+            return list(field_selector.config["options"])
+    raise KeyError(key)
+
+
 @pytest.mark.asyncio
 async def test_tuya_config_flow_provider_step_shows_two_options() -> None:
     flow = AeroStateConfigFlow()
@@ -172,11 +181,83 @@ async def test_tuya_config_flow_tuya_path_shows_tuya_device_step() -> None:
     result = await flow.async_step_user({CONF_IR_PROVIDER: IR_PROVIDER_TUYA})
 
     assert result["type"] == "form"
+    assert result["step_id"] == "tuya_brand"
+    assert _schema_keys(result["data_schema"]) == {CONF_BRAND}
+
+    result = await flow.async_step_tuya_brand({CONF_BRAND: "Daikin"})
+
     assert result["step_id"] == "tuya_device"
-    assert CONF_TUYA_IR_ENTITY in _schema_keys(result["data_schema"])
     assert _schema_default(result["data_schema"], CONF_TUYA_MODEL_PACK) == (
         "daikin.brc4c158.localtuya_rc.smartir1109.v1"
     )
+
+
+@pytest.mark.asyncio
+async def test_tuya_daikin_setup_shows_only_daikin_packs_and_import_action(tmp_path) -> None:
+    register_tuya_pack(
+        TuyaIRPack(
+            pack_id="daikin_tuya_set_999",
+            brand="Daikin",
+            models=["Stale imported set"],
+            verified=False,
+            notes="No local pack file exists",
+            min_temperature=16,
+            max_temperature=30,
+        )
+    )
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+    flow._selected_brand = "Daikin"
+
+    result = await flow.async_step_tuya_device()
+
+    pack_ids = {
+        option["value"]
+        for option in _selector_options(result["data_schema"], CONF_TUYA_MODEL_PACK)
+    }
+    assert pack_ids
+    assert all(get_tuya_pack(pack_id).brand == "Daikin" for pack_id in pack_ids)
+    assert "lg.akb75415308.localtuya_rc.protocol.v1" not in pack_ids
+    assert "tuya.lg_pc09sq_nsj.v1" not in pack_ids
+    assert "daikin_tuya_set_999" not in pack_ids
+    assert "daikin_setup_action" in _schema_keys(result["data_schema"])
+
+
+@pytest.mark.asyncio
+async def test_tuya_lg_setup_shows_only_lg_packs_without_daikin_import_action(tmp_path) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+    flow._selected_brand = "LG"
+
+    result = await flow.async_step_tuya_device()
+
+    pack_ids = {
+        option["value"]
+        for option in _selector_options(result["data_schema"], CONF_TUYA_MODEL_PACK)
+    }
+    assert pack_ids
+    assert all(get_tuya_pack(pack_id).brand == "LG" for pack_id in pack_ids)
+    assert "daikin.brc4c158.localtuya_rc.smartir1109.v1" not in pack_ids
+    assert "daikin_setup_action" not in _schema_keys(result["data_schema"])
+
+
+@pytest.mark.asyncio
+async def test_tuya_setup_rejects_pack_from_another_brand(tmp_path) -> None:
+    flow = AeroStateConfigFlow()
+    flow.hass = _hass(tmp_path=tmp_path)
+    flow._selected_brand = "Daikin"
+
+    result = await flow.async_step_tuya_device(
+        {
+            CONF_TUYA_IR_ENTITY: "remote.test_ir",
+            CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
+            CONF_TUYA_MODEL_PACK: "lg.akb75415308.localtuya_rc.protocol.v1",
+            "daikin_setup_action": "use_installed",
+        }
+    )
+
+    assert result["step_id"] == "tuya_device"
+    assert result["errors"] == {"base": "tuya_pack_brand_mismatch"}
 
 
 @pytest.mark.asyncio
@@ -226,7 +307,7 @@ async def test_tuya_device_step_routes_to_one_time_daikin_import_without_storing
         {
             CONF_TUYA_IR_ENTITY: "remote.test_ir",
             CONF_TUYA_DEVICE_NAME: DEFAULT_TUYA_DEVICE_NAME,
-            CONF_TUYA_MODEL_PACK: "lg.akb75415308.localtuya_rc.protocol.v1",
+            CONF_TUYA_MODEL_PACK: "daikin.brc4c158.localtuya_rc.smartir1109.v1",
             "daikin_setup_action": "import_daikin",
         }
     )
@@ -288,6 +369,7 @@ def test_tuya_device_step_explains_portable_code_source() -> None:
 async def test_tuya_device_step_rejects_missing_remote_entity() -> None:
     flow = AeroStateConfigFlow()
     flow.hass = _hass(states={})
+    flow._selected_brand = "LG"
 
     result = await flow.async_step_tuya_device(
         {

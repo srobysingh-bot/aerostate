@@ -2,7 +2,7 @@
 
 AeroState is a Home Assistant custom integration that exposes supported IR air conditioners as native climate entities.
 
-Release: v1.1.2
+Release: v1.1.3
 
 ## Installation
 
@@ -60,11 +60,15 @@ that confirmed local pack.
 The Tuya IR Setup screen shows the number of imported Smart Life-style Daikin
 sets installed locally. To import sets directly from Home Assistant:
 
-1. Select **Import Daikin code sets from Tuya once** under **Daikin code-set setup**.
-2. Select the local Tuya IR remote entity and submit.
-3. Enter the Tuya OpenAPI endpoint, Access ID, Access Secret, and IR blaster device ID.
-4. Select one imported Daikin set and one command such as `power_on`.
-5. Test that single command and confirm the pack only after the AC responds.
+1. Select **Daikin** as the Tuya AC brand.
+2. Select **Import Daikin code sets from Tuya once** under **Daikin code-set setup**.
+3. Select the local Tuya IR remote entity and submit.
+4. Enter the Tuya OpenAPI endpoint, Access ID, Access Secret, and IR blaster device ID.
+5. Select one imported Daikin set and one command such as `power_on`.
+6. Test that single command and confirm the pack only after the AC responds.
+
+Tuya command-pack selectors show only packs matching the selected AC brand.
+The Daikin one-time import choice is hidden during LG setup.
 
 Credentials are used only during the import request and are not saved in the
 integration config entry. Valid generated packs persist under

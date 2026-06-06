@@ -93,7 +93,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._ir_provider = provider if provider in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD} else IR_PROVIDER_BROADLINK
             self._selected_ir_provider = self._ir_provider
             if self._ir_provider == IR_PROVIDER_TUYA:
-                return await self.async_step_tuya_device()
+                return await self.async_step_tuya_brand()
             if self._ir_provider == IR_PROVIDER_TUYA_CLOUD:
                 return await self.async_step_tuya_cloud_device()
             return await self.async_step_broadlink_remote()
@@ -255,6 +255,54 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
+    async def async_step_tuya_brand(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.FlowResult:
+        """Choose the brand before showing brand-compatible Tuya packs."""
+        from .packs.tuya.registry import list_tuya_packs
+
+        brands = sorted({str(pack.brand).strip() for pack in list_tuya_packs() if pack.brand})
+        if not brands:
+            return self.async_abort(reason="no_tuya_packs_available")
+        if user_input is not None:
+            selected_brand = str(user_input.get(CONF_BRAND, "")).strip()
+            if selected_brand not in brands:
+                return self.async_show_form(
+                    step_id="tuya_brand",
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(CONF_BRAND): selector.SelectSelector(
+                                selector.SelectSelectorConfig(
+                                    options=[
+                                        selector.SelectOptionDict(value=brand, label=brand)
+                                        for brand in brands
+                                    ]
+                                )
+                            )
+                        }
+                    ),
+                    errors={"base": "tuya_brand_not_found"},
+                )
+            self._selected_brand = selected_brand
+            return await self.async_step_tuya_device()
+
+        return self.async_show_form(
+            step_id="tuya_brand",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_BRAND): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(value=brand, label=brand)
+                                for brand in brands
+                            ]
+                        )
+                    )
+                }
+            ),
+        )
+
     async def async_step_tuya_device(
         self,
         user_input: dict[str, Any] | None = None,
@@ -269,7 +317,25 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         imported_daikin_packs = list_daikin_tuya_packs(hass=self.hass)
         for imported_pack in imported_daikin_packs:
             load_daikin_tuya_pack(imported_pack.pack_id, hass=self.hass)
-        tuya_pack_options = get_tuya_pack_options_for_ui()
+        installed_daikin_pack_ids = {pack.pack_id for pack in imported_daikin_packs}
+        selected_brand = str(self._selected_brand or "").strip()
+        if not selected_brand and user_input is not None:
+            submitted_pack_id = str(user_input.get(CONF_TUYA_MODEL_PACK, "")).strip()
+            try:
+                self._selected_brand = get_tuya_pack(submitted_pack_id).brand
+            except Exception:
+                pass
+            selected_brand = str(self._selected_brand or "").strip()
+        if not selected_brand:
+            return await self.async_step_tuya_brand()
+
+        is_daikin = selected_brand.casefold() == "daikin"
+        tuya_pack_options = [
+            option
+            for option in get_tuya_pack_options_for_ui(selected_brand)
+            if not str(option["value"]).startswith("daikin_tuya_set_")
+            or str(option["value"]) in installed_daikin_pack_ids
+        ]
         code_sources = list_available_code_sources(self.hass)
 
         if not tuya_pack_options:
@@ -284,15 +350,18 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if len(code_sources) == 1:
             default_code_source = str(code_sources[0].get("name", "")).strip()
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_TUYA_IR_ENTITY): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="remote"),
-                ),
-                vol.Optional(CONF_TUYA_DEVICE_NAME, default=default_code_source): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
-                ),
-                vol.Required("daikin_setup_action", default="use_installed"): selector.SelectSelector(
+        schema_fields: dict[Any, Any] = {
+            vol.Required(CONF_TUYA_IR_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="remote"),
+            ),
+            vol.Optional(CONF_TUYA_DEVICE_NAME, default=default_code_source): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+            ),
+        }
+        if is_daikin:
+            schema_fields[
+                vol.Required("daikin_setup_action", default="use_installed")
+            ] = selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(
@@ -305,22 +374,25 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             ),
                         ],
                         mode="list",
-                    ),
-                ),
-                vol.Required(CONF_TUYA_MODEL_PACK, default=default_pack): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=tuya_pack_options),
-                ),
-            },
+                    )
+                )
+        schema_fields[vol.Required(CONF_TUYA_MODEL_PACK, default=default_pack)] = (
+            selector.SelectSelector(selector.SelectSelectorConfig(options=tuya_pack_options))
         )
+        schema = vol.Schema(schema_fields)
 
         if user_input is not None:
             remote_entity = user_input.get(CONF_TUYA_IR_ENTITY)
             setup_action = str(user_input.get("daikin_setup_action", "use_installed")).strip()
             selected_pack_id = str(user_input.get(CONF_TUYA_MODEL_PACK, default_pack)).strip()
             selected_pack = None
-            if setup_action != "import_daikin":
+            if setup_action == "import_daikin" and not is_daikin:
+                errors["base"] = "tuya_pack_brand_mismatch"
+            elif setup_action != "import_daikin":
                 try:
                     selected_pack = get_tuya_pack(selected_pack_id)
+                    if str(selected_pack.brand).strip().casefold() != selected_brand.casefold():
+                        errors["base"] = "tuya_pack_brand_mismatch"
                 except Exception:
                     errors["base"] = "tuya_pack_not_found"
 
@@ -381,7 +453,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "/config/aerostate_tuya_raw_codes/ or localtuya_rc storage/backups. "
                     f"Imported Smart Life-style Daikin sets installed: {len(imported_daikin_packs)}. "
                     "Imported sets appear in the command-pack list and open a manual Test/Confirm "
-                    "screen; AeroState never auto-cycles them."
+                    f"screen; AeroState never auto-cycles them. Selected brand: {selected_brand}."
                 ),
             },
         )

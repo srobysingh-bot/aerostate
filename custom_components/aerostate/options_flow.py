@@ -177,8 +177,10 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
         """Edit Broadlink entity, pack, optional sensors, and title."""
         from .packs.tuya.daikin.loader import list_daikin_tuya_packs, load_daikin_tuya_pack
 
-        for imported_pack in list_daikin_tuya_packs(hass=self.hass):
+        imported_daikin_packs = list_daikin_tuya_packs(hass=self.hass)
+        for imported_pack in imported_daikin_packs:
             load_daikin_tuya_pack(imported_pack.pack_id, hass=self.hass)
+        installed_daikin_pack_ids = {pack.pack_id for pack in imported_daikin_packs}
 
         registry = get_registry()
         brand = self._config_entry.data.get(CONF_BRAND, "")
@@ -210,7 +212,12 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                 ),
             )
 
-        for option in get_tuya_pack_options_for_ui():
+        for option in get_tuya_pack_options_for_ui(brand):
+            if (
+                str(option["value"]).startswith("daikin_tuya_set_")
+                and str(option["value"]) not in installed_daikin_pack_ids
+            ):
+                continue
             tuya_pack_options.append(
                 selector.SelectOptionDict(value=str(option["value"]), label=str(option["label"])),
             )
@@ -278,6 +285,8 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 try:
                     selected_tuya_pack = get_tuya_pack(str(raw_tuya_pack))
+                    if str(selected_tuya_pack.brand).strip().casefold() != str(brand).strip().casefold():
+                        raise ValueError("Tuya pack brand does not match the configured brand")
                     selected_pack_obj = selected_tuya_pack.to_model_pack()
                 except Exception:
                     return self.async_show_form(
@@ -285,7 +294,6 @@ class AeroStateOptionsFlowHandler(config_entries.OptionsFlow):
                         data_schema=schema,
                         errors={"base": "tuya_pack_not_found"},
                     )
-                new_data[CONF_BRAND] = selected_tuya_pack.brand
                 if str(selected_tuya_pack.brand).strip().lower() == "daikin":
                     previous_pack = self._config_entry.options.get(
                         CONF_TUYA_MODEL_PACK,

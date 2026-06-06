@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.3 - 2026-06-06
+
+### Fixed
+- Tuya setup now asks for the AC brand before showing command packs.
+- Daikin setup shows only Daikin-compatible local packs.
+- LG setup shows only LG-compatible local packs.
+- Options flow filters Tuya packs using the configured entry brand.
+
+### Safety
+- The Daikin one-time import action is shown only for Daikin setup.
+- Cross-brand Tuya pack submissions are rejected.
+- Stale imported Daikin registry entries are hidden when their local pack file no longer exists.
+
 ## 1.1.2 - 2026-06-06
 
 ### Added

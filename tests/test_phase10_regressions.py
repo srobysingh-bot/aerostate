@@ -135,3 +135,43 @@ async def test_options_flow_rejects_invalid_model_pack(monkeypatch) -> None:
     assert result["type"] == "form"
     assert result["step_id"] == "init"
     assert result["errors"] == {"base": "invalid_model_pack"}
+
+
+@pytest.mark.skipif(importlib.util.find_spec("homeassistant") is None, reason="homeassistant not installed")
+@pytest.mark.asyncio
+async def test_options_flow_filters_tuya_packs_to_entry_brand(tmp_path) -> None:
+    import voluptuous as vol
+
+    from custom_components.aerostate.const import (
+        CONF_BRAND,
+        CONF_IR_PROVIDER,
+        CONF_TUYA_MODEL_PACK,
+        IR_PROVIDER_TUYA,
+    )
+    from custom_components.aerostate.options_flow import AeroStateOptionsFlowHandler
+    from custom_components.aerostate.packs.tuya.registry import get_tuya_pack
+
+    config_entry = SimpleNamespace(
+        entry_id="entry_1",
+        data={
+            CONF_BRAND: "Daikin",
+            CONF_IR_PROVIDER: IR_PROVIDER_TUYA,
+            CONF_TUYA_MODEL_PACK: "daikin.brc4c158.localtuya_rc.smartir1109.v1",
+        },
+        options={},
+    )
+    handler = AeroStateOptionsFlowHandler(config_entry)
+    handler.hass = SimpleNamespace(
+        config=SimpleNamespace(path=lambda rel: str(tmp_path / rel)),
+    )
+
+    result = await handler.async_step_init()
+
+    options = []
+    for marker, field_selector in result["data_schema"].schema.items():
+        if isinstance(marker, (vol.Required, vol.Optional)) and marker.schema == CONF_TUYA_MODEL_PACK:
+            options = field_selector.config["options"]
+            break
+    pack_ids = {option["value"] for option in options if option["value"]}
+    assert pack_ids
+    assert all(get_tuya_pack(pack_id).brand == "Daikin" for pack_id in pack_ids)
