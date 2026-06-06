@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0 - 2026-06-06
+
+### Added
+- Isolated local Daikin Tuya code-set loader and one-time Tuya Cloud importer.
+- Safe one-command Daikin pack testing and explicit confirmed-pack selection services.
+- Offline Daikin runtime control using only the confirmed local pack.
+- Daikin runtime, loader, service isolation, and exact-once power-off regression tests.
+
+### Changed
+- Tuya pack registration now loads bundled and generated local packs explicitly.
+- Daikin local runtime requires a confirmed pack and reports a repair issue when missing.
+
+### Unchanged
+- Existing LG Tuya packs and runtime behavior.
+- Existing Broadlink provider, packs, and runtime behavior.
+
 ## 1.0.1 - 2026-05-31
 
 ### Fixed
