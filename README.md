@@ -2,7 +2,7 @@
 
 AeroState is a Home Assistant custom integration that exposes supported IR air conditioners as native climate entities.
 
-Release: v1.1.3
+Release: v1.1.4
 
 ## Installation
 
@@ -51,9 +51,9 @@ Release: v1.1.3
 4. Run onboarding validation.
 5. Add the created climate entity to a dashboard thermostat card.
 
-For Daikin ACs using a Tuya IR blaster, import code-set packs once, test packs
-one command at a time, then confirm the working pack. Runtime control uses only
-that confirmed local pack.
+For Daikin BRC4M150W / FXAQ63PVE6 ACs using a Tuya IR blaster, import code-set
+packs once, test packs one command at a time, then confirm the working pack.
+Runtime control uses only that confirmed local pack.
 
 ### Daikin Code-Set UI
 
@@ -71,10 +71,10 @@ Tuya command-pack selectors show only packs matching the selected AC brand.
 The Daikin one-time import choice is hidden during LG setup.
 
 Credentials are used only during the import request and are not saved in the
-integration config entry. Valid generated packs persist under
-`/config/aerostate_tuya_daikin_codes/`, outside HACS-managed integration files.
-The repository does not contain fabricated Daikin payloads. Tuya sets that do
-not contain the required local commands are skipped.
+integration config entry. Valid generated packs are written under
+`custom_components/aerostate/packs/tuya/daikin/`. The repository does not
+contain fabricated Daikin payloads. Tuya sets that do not contain the required
+local commands are skipped.
 
 ## Troubleshooting
 
