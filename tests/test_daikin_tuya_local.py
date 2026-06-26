@@ -19,15 +19,17 @@ from custom_components.aerostate.const import (
     IR_PROVIDER_TUYA,
 )
 from custom_components.aerostate.packs.tuya.daikin.loader import (
+    TARGET_PACK_ID,
     get_daikin_tuya_pack,
     list_daikin_tuya_packs,
     load_daikin_tuya_pack,
+    write_daikin_target_pack,
 )
 from custom_components.aerostate.providers.tuya_ir_manager import (
     TuyaIRManager,
     create_tuya_ir_manager_from_entry,
 )
-from scripts.import_tuya_daikin_codes import _normalize_codes
+from scripts.import_tuya_daikin_codes import _codes_from_capture, _normalize_codes
 from scripts.import_tuya_daikin_codes import _write_pack as _write_imported_pack
 
 
@@ -47,10 +49,11 @@ def _write_pack(directory: Path, name: str = "daikin_tuya_set_001.py", *, valid:
         "METADATA = {\n"
         "  'pack_id': 'daikin_tuya_set_001',\n"
         "  'display_name': 'Daikin Tuya set 001',\n"
-        "  'brand': 'Daikin', 'provider': 'tuya_local', 'remote_index': '1',\n"
-        "  'source': 'test', 'temp_range': [16, 30], 'fan_modes': ['auto'],\n"
+        "  'brand': 'Daikin', 'model_hint': 'FXAQ63PVE6',\n"
+        "  'provider': 'tuya_local', 'remote_index': '1',\n"
+        "  'source': 'tuya_cloud_one_time_import', 'temp_range': [16, 30], 'fan_modes': ['auto'],\n"
         "  'swing_support': True, 'generated_at': '2026-06-06T00:00:00Z',\n"
-        "  'payload_format': 'localtuya_rc_raw'\n"
+        "  'payload_format': 'localtuya_rc_raw', 'cloud_disabled_at_runtime': True\n"
         "}\n"
         f"CODES = {codes!r}\n",
         encoding="utf-8",
@@ -98,6 +101,44 @@ def test_importer_converts_tuya_rule_entries_into_loadable_local_pack(tmp_path) 
 
     assert path.name == "daikin_tuya_set_001.py"
     assert pack.resolve_by_label("cool_t24_fauto") == "raw:cool24"
+
+
+def test_target_brc4m150w_pack_requires_named_fan_variants(tmp_path) -> None:
+    codes = {
+        "power_on": "raw:on",
+        "power_off": "raw:off",
+        "cool_t24_fauto": "raw:cool24auto",
+        "cool_t24_flow": "raw:cool24low",
+        "cool_t24_fmid": "raw:cool24mid",
+        "cool_t24_fhigh": "raw:cool24high",
+    }
+
+    path = write_daikin_target_pack(tmp_path, codes, remote_index="brc4m")
+    pack = load_daikin_tuya_pack(TARGET_PACK_ID, directory=tmp_path)
+
+    assert path.name == f"{TARGET_PACK_ID}.py"
+    assert pack.resolve_by_label("cool_t24_fmid") == "raw:cool24mid"
+
+    path.write_text(path.read_text(encoding="utf-8").replace("'cool_t24_fhigh': 'raw:cool24high',", ""), encoding="utf-8")
+    assert list_daikin_tuya_packs(directory=tmp_path) == []
+
+
+def test_target_pack_can_be_built_from_physical_remote_capture_json(tmp_path) -> None:
+    capture = tmp_path / "capture.json"
+    capture.write_text(
+        (
+            '{"commands": {"power_on": "raw:on", "power_off": "raw:off", '
+            '"cool_t24_fauto": "raw:auto", "cool_t24_flow": "raw:low", '
+            '"cool_t24_fmid": "raw:mid", "cool_t24_fhigh": "raw:high"}}'
+        ),
+        encoding="utf-8",
+    )
+
+    path = write_daikin_target_pack(tmp_path, _codes_from_capture(capture))
+    pack = load_daikin_tuya_pack(TARGET_PACK_ID, directory=tmp_path)
+
+    assert path.name == f"{TARGET_PACK_ID}.py"
+    assert pack.resolve_by_label("power_on") == "raw:on"
 
 
 class _ConfigEntries:

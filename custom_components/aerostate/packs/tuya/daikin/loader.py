@@ -13,19 +13,32 @@ from typing import Any
 from ..schema import TuyaIRCommand, TuyaIRPack
 
 REQUIRED_COMMANDS = frozenset({"power_on", "power_off", "cool_t24_fauto"})
-REQUIRED_METADATA = frozenset(
+TARGET_REQUIRED_COMMANDS = frozenset(
     {
-        "brand",
-        "provider",
-        "remote_index",
-        "source",
-        "temp_range",
-        "fan_modes",
-        "swing_support",
-        "generated_at",
-        "payload_format",
+        "power_on",
+        "power_off",
+        "cool_t24_fauto",
+        "cool_t24_flow",
+        "cool_t24_fmid",
+        "cool_t24_fhigh",
     }
 )
+REQUIRED_METADATA = frozenset(
+    {
+        "pack_id",
+        "display_name",
+        "brand",
+        "provider",
+        "source",
+        "payload_format",
+        "cloud_disabled_at_runtime",
+    }
+)
+TARGET_PACK_ID = "daikin_brc4m150w_fxaq63pve6_localtuya_rc_v1"
+TARGET_DISPLAY_NAME = "Daikin BRC4M150W / FXAQ63PVE6"
+TARGET_REMOTE_MODEL = "BRC4M150W"
+TARGET_INDOOR_MODEL = "FXAQ63PVE6"
+TARGET_SOURCE = "tuya_cloud_one_time_import_or_physical_remote_capture"
 _STATE_LABEL = re.compile(
     r"^(?P<mode>cool|heat|dry|auto|fan_only)_t(?P<temp>\d+)_f(?P<fan>[a-z0-9_]+)$"
 )
@@ -53,8 +66,8 @@ def _pack_dir() -> Path:
 
 
 def user_pack_dir(hass) -> Path:
-    """Return the persistent user Daikin pack directory outside HACS files."""
-    return Path(hass.config.path("aerostate_tuya_daikin_codes"))
+    """Return the generated Daikin pack directory inside the integration tree."""
+    return _pack_dir()
 
 
 def _literal_assignments(path: Path) -> dict[str, Any]:
@@ -99,8 +112,10 @@ def _validate_pack(path: Path) -> tuple[dict[str, Any], dict[str, str]]:
     if str(metadata.get("provider", "")).strip().lower() != "tuya_local":
         raise DaikinTuyaPackValidationError(f"{path.name} provider must be tuya_local")
     payload_format = str(metadata.get("payload_format", "")).strip().lower()
-    if payload_format not in {"localtuya_rc_raw", "tuya_raw", "tuya_key1"}:
+    if payload_format != "localtuya_rc_raw":
         raise DaikinTuyaPackValidationError(f"{path.name} has unsupported payload_format")
+    if metadata.get("cloud_disabled_at_runtime") is not True:
+        raise DaikinTuyaPackValidationError(f"{path.name} must disable Tuya Cloud at runtime")
 
     normalized_codes: dict[str, str] = {}
     for label, payload in codes.items():
@@ -119,6 +134,13 @@ def _validate_pack(path: Path) -> tuple[dict[str, Any], dict[str, str]]:
         raise DaikinTuyaPackValidationError(
             f"{path.name} missing required commands: {', '.join(missing_commands)}"
         )
+    pack_id = str(metadata.get("pack_id") or path.stem).strip()
+    if pack_id == TARGET_PACK_ID:
+        missing_target_commands = sorted(TARGET_REQUIRED_COMMANDS - normalized_codes.keys())
+        if missing_target_commands:
+            raise DaikinTuyaPackValidationError(
+                f"{path.name} missing target commands: {', '.join(missing_target_commands)}"
+            )
     return dict(metadata), normalized_codes
 
 
@@ -207,13 +229,16 @@ def load_daikin_tuya_pack(pack_id: str, *, hass=None, directory: Path | None = N
         brand="Daikin",
         models=[info.display_name],
         verified=False,
-        notes=f"Imported Tuya code set remote_index={metadata['remote_index']}; cloud disabled at runtime.",
+        notes=(
+            f"{metadata.get('display_name', info.pack_id)}; "
+            f"remote_index={metadata.get('remote_index', 'n/a')}; cloud disabled at runtime."
+        ),
         min_temperature=int(temp_range[0]),
         max_temperature=int(temp_range[1]),
         commands=commands,
         native_base64=False,
         requires_learned_codes=False,
-        swing_vertical_modes=["off", "on"] if metadata.get("swing_support") else [],
+        swing_vertical_modes=["off", "on"] if metadata.get("swing_support", "swing_vertical" in codes) else [],
         transport="localtuya_rc",
         protocol="stateful",
     )
@@ -226,6 +251,12 @@ def write_daikin_tuya_pack(
     sequence: int,
     remote_index: str,
     codes: dict[str, str],
+    *,
+    pack_id: str | None = None,
+    display_name: str | None = None,
+    remote_model: str | None = None,
+    indoor_model: str | None = None,
+    source: str = "tuya_cloud_one_time_import",
 ) -> Path:
     """Validate and save one imported Tuya Daikin set as a data-only pack."""
     missing = sorted(REQUIRED_COMMANDS - codes.keys())
@@ -238,7 +269,7 @@ def write_daikin_tuya_pack(
             f"remote_index={remote_index} contains a Broadlink/native-b64 payload"
         )
 
-    pack_id = f"daikin_tuya_set_{sequence:03d}"
+    pack_id = pack_id or f"daikin_tuya_set_{sequence:03d}"
     fans = sorted(
         {match.group(1) for label in codes if (match := re.search(r"_f([a-z0-9_]+)$", label))}
     )
@@ -247,17 +278,24 @@ def write_daikin_tuya_pack(
     )
     metadata = {
         "pack_id": pack_id,
-        "display_name": f"Daikin Tuya code set {sequence:03d}",
+        "display_name": display_name or f"Daikin Tuya code set {sequence:03d}",
         "brand": "Daikin",
         "provider": "tuya_local",
         "remote_index": remote_index,
-        "source": "Tuya Cloud IR code library one-time import",
+        "source": source,
         "temp_range": [min(temps), max(temps)] if temps else [16, 30],
         "fan_modes": fans or ["auto"],
         "swing_support": "swing_vertical" in codes,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "payload_format": "localtuya_rc_raw",
+        "cloud_disabled_at_runtime": True,
     }
+    if remote_model:
+        metadata["remote_model"] = remote_model
+    if indoor_model:
+        metadata["indoor_model"] = indoor_model
+    if "remote_model" not in metadata and "indoor_model" not in metadata:
+        metadata["model_hint"] = TARGET_INDOOR_MODEL
     output.mkdir(parents=True, exist_ok=True)
     path = output / f"{pack_id}.py"
     path.write_text(
@@ -268,6 +306,27 @@ def write_daikin_tuya_pack(
     )
     _validate_pack(path)
     return path
+
+
+def write_daikin_target_pack(
+    output: Path,
+    codes: dict[str, str],
+    *,
+    remote_index: str = "",
+    source: str = TARGET_SOURCE,
+) -> Path:
+    """Write the confirmed BRC4M150W / FXAQ63PVE6 local Tuya pack."""
+    return write_daikin_tuya_pack(
+        output,
+        1,
+        remote_index,
+        codes,
+        pack_id=TARGET_PACK_ID,
+        display_name=TARGET_DISPLAY_NAME,
+        remote_model=TARGET_REMOTE_MODEL,
+        indoor_model=TARGET_INDOOR_MODEL,
+        source=source,
+    )
 
 
 def register_local_daikin_tuya_packs() -> None:
@@ -283,6 +342,13 @@ __all__ = [
     "list_daikin_tuya_packs",
     "load_daikin_tuya_pack",
     "register_local_daikin_tuya_packs",
+    "TARGET_DISPLAY_NAME",
+    "TARGET_INDOOR_MODEL",
+    "TARGET_PACK_ID",
+    "TARGET_REMOTE_MODEL",
+    "TARGET_REQUIRED_COMMANDS",
+    "TARGET_SOURCE",
     "user_pack_dir",
+    "write_daikin_target_pack",
     "write_daikin_tuya_pack",
 ]

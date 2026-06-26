@@ -17,7 +17,7 @@
       },
       "tuya_device": {
         "title": "Tuya IR Setup",
-        "description": "Select the Tuya IR remote entity and command pack. Built-in packs such as Daikin BRC4C158 do not use Tuya Cloud or learned raw-code sources.\n\n{code_source_hint}",
+        "description": "Select the Tuya IR remote entity and command pack. Imported Daikin packs use local Tuya raw payloads and do not call Tuya Cloud at runtime.\n\n{code_source_hint}",
         "data": {
           "tuya_ir_entity": "Tuya IR Remote Entity",
           "tuya_device_name": "Raw-code source name (learned packs only)",

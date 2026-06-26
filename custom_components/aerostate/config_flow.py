@@ -343,7 +343,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         default_pack = tuya_pack_options[0]["value"] if tuya_pack_options else ""
         for option in tuya_pack_options:
-            if option["value"] == "daikin.brc4c158.localtuya_rc.smartir1109.v1":
+            if option["value"] == "daikin_brc4m150w_fxaq63pve6_localtuya_rc_v1":
                 default_pack = option["value"]
                 break
         default_code_source = ""
@@ -444,11 +444,10 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "code_source_hint": (
-                    "For Daikin BRC4C158, select the built-in "
-                    "daikin.brc4c158.localtuya_rc.smartir1109.v1 pack. It contains generated "
-                    "Daikin BRC4CXXX raw commands for cool-only operation and uses the selected "
-                    "Tuya IR remote entity directly. It does not need Tuya Cloud, Access ID, "
-                    "infrared_id, remote_id, learned commands, or a raw-code source name. "
+                    "For Daikin BRC4M150W / FXAQ63PVE6, import Tuya Daikin code sets once, "
+                    "then test one local pack command at a time. The older BRC4C158 pack is "
+                    "available only as a reference and should not be confirmed as the final "
+                    "FXAQ63PVE6 pack unless the physical AC responds correctly. "
                     "Learned LG-style packs can still use portable raw-code JSON files in "
                     "/config/aerostate_tuya_raw_codes/ or localtuya_rc storage/backups. "
                     f"Imported Smart Life-style Daikin sets installed: {len(imported_daikin_packs)}. "
@@ -469,7 +468,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         placeholders = {
             "status": (
                 "Credentials are used only for this import request and are not saved. "
-                "Generated packs are stored under /config/aerostate_tuya_daikin_codes/."
+                "Generated packs are stored under custom_components/aerostate/packs/tuya/daikin/."
             )
         }
         if user_input is not None:

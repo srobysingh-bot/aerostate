@@ -101,10 +101,11 @@ def _write_daikin_set(directory: Path, number: int) -> None:
     (directory / f"{pack_id}.py").write_text(
         "METADATA = {\n"
         f"  'pack_id': '{pack_id}', 'display_name': 'Daikin set {number:03d}',\n"
-        "  'brand': 'Daikin', 'provider': 'tuya_local',\n"
-        f"  'remote_index': '{number}', 'source': 'test', 'temp_range': [16, 30],\n"
+        "  'brand': 'Daikin', 'model_hint': 'FXAQ63PVE6', 'provider': 'tuya_local',\n"
+        f"  'remote_index': '{number}', 'source': 'tuya_cloud_one_time_import', 'temp_range': [16, 30],\n"
         "  'fan_modes': ['auto'], 'swing_support': True,\n"
-        "  'generated_at': '2026-06-06T00:00:00Z', 'payload_format': 'localtuya_rc_raw'\n"
+        "  'generated_at': '2026-06-06T00:00:00Z', 'payload_format': 'localtuya_rc_raw',\n"
+        "  'cloud_disabled_at_runtime': True\n"
         "}\n"
         f"CODES = {{'power_on': 'raw:on{number}', 'power_off': 'raw:off{number}', "
         f"'cool_t24_fauto': 'raw:cool{number}', 'swing_vertical': 'raw:swing{number}'}}\n",
@@ -322,13 +323,14 @@ async def test_daikin_import_step_does_not_store_credentials_and_opens_tester(
     tmp_path,
     monkeypatch,
 ) -> None:
-    daikin_dir = tmp_path / "aerostate_tuya_daikin_codes"
+    daikin_dir = tmp_path / "daikin_generated"
     _write_daikin_set(daikin_dir, 1)
     imported_credentials: list[dict[str, str]] = []
+    monkeypatch.setattr(daikin_loader, "_pack_dir", lambda: daikin_dir)
 
     async def _import(_hass, **kwargs):
         imported_credentials.append(kwargs)
-        daikin_loader.load_daikin_tuya_pack("daikin_tuya_set_001", hass=_hass)
+        daikin_loader.load_daikin_tuya_pack("daikin_tuya_set_001")
         return DaikinImportResult(1, 1, 0, ("daikin_tuya_set_001",))
 
     monkeypatch.setattr(

@@ -10,3 +10,4 @@ venv/
 .env
 .DS_Store
 graphify-out/
+custom_components/aerostate/packs/tuya/daikin/_debug/

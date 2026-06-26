@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.4 - 2026-06-26
+
+### Added
+- Target Daikin Tuya local pack generation for BRC4M150W / FXAQ63PVE6.
+- One-time Tuya import priority for BRC4M150W, BRC4M150, FXAQ63PVE6, FXAQ, and commercial Daikin families.
+- Physical remote capture fallback that writes the same localtuya_rc target pack format.
+
+### Safety
+- BRC4C158 remains reference-only for the FXAQ63PVE6 workflow.
+- Target Daikin pack validation rejects Broadlink b64 payloads and incomplete fan variants.
+- Runtime remains local and uses `_async_send_raw_command` with payload-hash-only logging.
+
 ## 1.1.3 - 2026-06-06
 
 ### Fixed
