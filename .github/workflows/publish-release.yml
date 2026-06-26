@@ -24,13 +24,13 @@ jobs:
           set -euo pipefail
 
           VERSION="$(python - <<'PY'
-import json
-from pathlib import Path
+          import json
+          from pathlib import Path
 
-manifest = json.loads(Path("custom_components/aerostate/manifest.json").read_text())
-print(manifest["version"])
-PY
-)"
+          manifest = json.loads(Path("custom_components/aerostate/manifest.json").read_text())
+          print(manifest["version"])
+          PY
+          )"
           TAG="v${VERSION}"
 
           if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
@@ -45,18 +45,18 @@ PY
           fi
 
           VERSION="${VERSION}" python - <<'PY'
-import os
-from pathlib import Path
+          import os
+          from pathlib import Path
 
-notes = Path("RELEASE_NOTES.md").read_text()
-version = os.environ["VERSION"]
-start = notes.index(f"## AeroState v{version}")
-try:
-    end = notes.index("\n## AeroState v", start + 1)
-except ValueError:
-    end = len(notes)
-Path("release-body.md").write_text(notes[start:end].strip() + "\n")
-PY
+          notes = Path("RELEASE_NOTES.md").read_text()
+          version = os.environ["VERSION"]
+          start = notes.index(f"## AeroState v{version}")
+          try:
+              end = notes.index("\n## AeroState v", start + 1)
+          except ValueError:
+              end = len(notes)
+          Path("release-body.md").write_text(notes[start:end].strip() + "\n")
+          PY
 
           gh release create "${TAG}" \
             --title "AeroState ${TAG}" \
