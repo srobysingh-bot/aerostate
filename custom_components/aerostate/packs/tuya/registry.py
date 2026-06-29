@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 _TUYA_REGISTRY: dict[str, "TuyaIRPack"] = {}
 _BUILTINS_IMPORTED = False
+DAIKIN_REFERENCE_PACK_ID = "daikin.brc4c158.localtuya_rc.smartir1109.v1"
 _BUILTIN_MODULES = (
     "daikin_brc4c158_localtuya_v1",
     "lg_akb75415308_tuya_protocol_v1",
@@ -54,8 +55,12 @@ def list_tuya_packs() -> list["TuyaIRPack"]:
 def get_tuya_pack_options_for_ui(brand: str | None = None) -> list[dict]:
     """Return selector options, optionally limited to one brand."""
     normalized_brand = str(brand or "").strip().casefold()
-    return [
-        {"value": p.pack_id, "label": f"{p.models[0] if p.models else p.pack_id} ({p.pack_id})"}
-        for p in list_tuya_packs()
-        if not normalized_brand or str(p.brand).strip().casefold() == normalized_brand
-    ]
+    options = []
+    for pack in list_tuya_packs():
+        if normalized_brand and str(pack.brand).strip().casefold() != normalized_brand:
+            continue
+        label = f"{pack.models[0] if pack.models else pack.pack_id} ({pack.pack_id})"
+        if pack.pack_id == DAIKIN_REFERENCE_PACK_ID:
+            label = f"Reference only, not BRC4M150W - {label}"
+        options.append({"value": pack.pack_id, "label": label})
+    return options

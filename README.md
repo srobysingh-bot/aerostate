@@ -2,7 +2,7 @@
 
 AeroState is a Home Assistant custom integration that exposes supported IR air conditioners as native climate entities.
 
-Release: v1.1.4
+Release: v1.1.5
 
 ## Installation
 

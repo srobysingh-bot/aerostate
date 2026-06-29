@@ -90,7 +90,11 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Step 1: choose IR provider and branch to the provider-specific path."""
         if user_input is not None:
             provider = str(user_input.get(CONF_IR_PROVIDER, IR_PROVIDER_BROADLINK)).strip().lower()
-            self._ir_provider = provider if provider in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD} else IR_PROVIDER_BROADLINK
+            self._ir_provider = (
+                provider
+                if provider in {IR_PROVIDER_BROADLINK, IR_PROVIDER_TUYA, IR_PROVIDER_TUYA_CLOUD}
+                else IR_PROVIDER_BROADLINK
+            )
             self._selected_ir_provider = self._ir_provider
             if self._ir_provider == IR_PROVIDER_TUYA:
                 return await self.async_step_tuya_brand()
@@ -114,8 +118,13 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            selector.SelectOptionDict(value=IR_PROVIDER_BROADLINK, label="Broadlink IR (default)"),
-                            selector.SelectOptionDict(value=IR_PROVIDER_TUYA, label="Tuya IR Device (LG/Daikin local packs)"),
+                            selector.SelectOptionDict(
+                                value=IR_PROVIDER_BROADLINK, label="Broadlink IR (default)"
+                            ),
+                            selector.SelectOptionDict(
+                                value=IR_PROVIDER_TUYA,
+                                label="Tuya IR Device (LG/Daikin local packs)",
+                            ),
                         ],
                         mode="list",
                     ),
@@ -136,7 +145,9 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_TUYA_CLOUD_ENDPOINT, default=DEFAULT_TUYA_CLOUD_ENDPOINT): selector.TextSelector(
+                vol.Required(
+                    CONF_TUYA_CLOUD_ENDPOINT, default=DEFAULT_TUYA_CLOUD_ENDPOINT
+                ): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
                 ),
                 vol.Required(CONF_TUYA_CLOUD_ACCESS_ID): selector.TextSelector(
@@ -151,7 +162,9 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_TUYA_REMOTE_ID): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
                 ),
-                vol.Required(CONF_TUYA_CLOUD_MODEL_PACK, default=default_pack): selector.SelectSelector(
+                vol.Required(
+                    CONF_TUYA_CLOUD_MODEL_PACK, default=default_pack
+                ): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=pack_options),
                 ),
             }
@@ -309,7 +322,11 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.FlowResult:
         """Collect Tuya IR blaster connection details."""
         from .packs.tuya.daikin.loader import list_daikin_tuya_packs, load_daikin_tuya_pack
-        from .packs.tuya.registry import get_tuya_pack, get_tuya_pack_options_for_ui
+        from .packs.tuya.registry import (
+            DAIKIN_REFERENCE_PACK_ID,
+            get_tuya_pack,
+            get_tuya_pack_options_for_ui,
+        )
         from .providers.learned_code_resolver import get_coverage_summary
         from .providers.localtuya_rc_storage import list_available_code_sources, read_learned_codes
 
@@ -333,7 +350,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         tuya_pack_options = [
             option
             for option in get_tuya_pack_options_for_ui(selected_brand)
-            if not str(option["value"]).startswith("daikin_tuya_set_")
+            if not is_daikin
+            or str(option["value"]) == DAIKIN_REFERENCE_PACK_ID
             or str(option["value"]) in installed_daikin_pack_ids
         ]
         code_sources = list_available_code_sources(self.hass)
@@ -359,9 +377,8 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         }
         if is_daikin:
-            schema_fields[
-                vol.Required("daikin_setup_action", default="use_installed")
-            ] = selector.SelectSelector(
+            schema_fields[vol.Required("daikin_setup_action", default="use_installed")] = (
+                selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
                             selector.SelectOptionDict(
@@ -376,6 +393,7 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode="list",
                     )
                 )
+            )
         schema_fields[vol.Required(CONF_TUYA_MODEL_PACK, default=default_pack)] = (
             selector.SelectSelector(selector.SelectSelectorConfig(options=tuya_pack_options))
         )
@@ -401,7 +419,9 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "tuya_remote_entity_not_found"
             elif state is not None and state.state in ("unavailable", "unknown") and not errors:
                 errors["base"] = "tuya_remote_entity_unavailable"
-            elif selected_pack is not None and getattr(selected_pack, "requires_learned_codes", True):
+            elif selected_pack is not None and getattr(
+                selected_pack, "requires_learned_codes", True
+            ):
                 device_name = str(user_input.get(CONF_TUYA_DEVICE_NAME, "")).strip()
                 codes = read_learned_codes(self.hass, device_name)
                 if not codes:
@@ -412,13 +432,13 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._tuya_setup_warning = ""
                     get_coverage_summary(codes)
             elif selected_pack is not None:
-                self._tuya_setup_warning = "Pre-generated Tuya code pack selected. No learning required."
+                self._tuya_setup_warning = (
+                    "Pre-generated Tuya code pack selected. No learning required."
+                )
 
             if not errors:
                 self._tuya_data = {
-                    key: value
-                    for key, value in user_input.items()
-                    if key != "daikin_setup_action"
+                    key: value for key, value in user_input.items() if key != "daikin_setup_action"
                 }
                 self._tuya_data[CONF_TUYA_DEVICE_NAME] = str(
                     self._tuya_data.get(CONF_TUYA_DEVICE_NAME, default_code_source),
@@ -675,7 +695,11 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             unique_id = f"tuya::{remote_entity}::{pack_id or device_name or 'auto'}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
-            title_suffix = selected_pack.models[0] if selected_pack.models else (device_name or remote_entity or "auto")
+            title_suffix = (
+                selected_pack.models[0]
+                if selected_pack.models
+                else (device_name or remote_entity or "auto")
+            )
             return self.async_create_entry(
                 title=f"AeroState Tuya IR - {title_suffix}",
                 data={
@@ -700,14 +724,18 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="tuya_confirm",
                 data_schema=vol.Schema({}),
                 description_placeholders={
-                    "device_name": selected_pack.models[0] if selected_pack.models else selected_pack.pack_id,
+                    "device_name": selected_pack.models[0]
+                    if selected_pack.models
+                    else selected_pack.pack_id,
                     "code_source_status": self._tuya_setup_warning or "Pre-generated pack ready",
                     "total_codes": str(len(selected_pack.commands)),
                     "cool_temps_auto": f"{selected_pack.min_temperature}-{selected_pack.max_temperature}",
                     "cool_temps_fan": f"{selected_pack.min_temperature}-{selected_pack.max_temperature}",
                     "fan_codes": str(len(fan_codes)),
                     "has_power_off": "Yes",
-                    "heat_supported": "Yes" if "heat" in model_pack.capabilities.hvac_modes else "No",
+                    "heat_supported": "Yes"
+                    if "heat" in model_pack.capabilities.hvac_modes
+                    else "No",
                     "dry_supported": "Yes" if "dry" in model_pack.capabilities.hvac_modes else "No",
                     "gaps": "none",
                 },
@@ -954,10 +982,14 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         supported_modes = summary.get("supported_modes", [])
         mode_truth = summary.get("mode_truth", {})
         physically_verified_modes = [
-            mode for mode, meta in mode_truth.items() if isinstance(meta, dict) and meta.get("physically_verified")
+            mode
+            for mode, meta in mode_truth.items()
+            if isinstance(meta, dict) and meta.get("physically_verified")
         ]
         experimental_modes = [
-            mode for mode, meta in mode_truth.items() if isinstance(meta, dict) and meta.get("status") == "experimental"
+            mode
+            for mode, meta in mode_truth.items()
+            if isinstance(meta, dict) and meta.get("status") == "experimental"
         ]
         try:
             pack = get_registry().get(self._selected_pack_id or "")
@@ -972,8 +1004,12 @@ class AeroStateConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "transport_ok": "yes" if summary.get("transport_ok") else "no",
                 "set_available": "yes" if summary.get("set_available") else "no",
                 "supported_modes": ", ".join(supported_modes) if supported_modes else "none",
-                "physically_verified_modes": ", ".join(physically_verified_modes) if physically_verified_modes else "none",
-                "experimental_modes": ", ".join(experimental_modes) if experimental_modes else "none",
+                "physically_verified_modes": ", ".join(physically_verified_modes)
+                if physically_verified_modes
+                else "none",
+                "experimental_modes": ", ".join(experimental_modes)
+                if experimental_modes
+                else "none",
                 "attempted": ", ".join(attempted) if attempted else "none",
                 "error": str(summary.get("error", "")) or "none",
                 "pack_notes": pack.notes or "none",

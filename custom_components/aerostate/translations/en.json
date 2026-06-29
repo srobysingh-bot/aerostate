@@ -153,7 +153,7 @@
     "step": {
       "init": {
         "title": "Edit AeroState options",
-        "description": "Update controller, model pack, linked sensors, and naming. Notes: {pack_notes}. Limitations: {pack_limitations}.",
+        "description": "Update controller, model pack, linked sensors, and naming. For Daikin BRC4M150W / FXAQ63PVE6, choose the Daikin action below to import candidates or test and select an installed local pack. Notes: {pack_notes}. Limitations: {pack_limitations}.",
         "data": {
           "broadlink_entity": "Broadlink remote",
           "model_pack": "Model pack",
@@ -171,12 +171,42 @@
           "humidity_sensor": "Room humidity sensor",
           "power_sensor": "Power sensor",
           "area": "Area",
-          "name": "Display name"
+          "name": "Display name",
+          "daikin_setup_action": "Daikin BRC4M150W package action"
+        }
+      },
+      "daikin_import": {
+        "title": "Import Daikin BRC4M150W candidates",
+        "description": "{status}\n\nEnter Tuya OpenAPI credentials and the Tuya IR blaster device ID. This cloud operation runs once; credentials are not retained.",
+        "data": {
+          "tuya_cloud_endpoint": "Tuya OpenAPI endpoint",
+          "tuya_cloud_access_id": "Tuya Access ID",
+          "tuya_cloud_access_secret": "Tuya Access Secret",
+          "tuya_infrared_id": "Tuya IR blaster device ID"
+        }
+      },
+      "daikin_pack_test": {
+        "title": "Test and select Daikin BRC4M150W pack",
+        "description": "{pack_count} local Daikin packs are available.\n\nSelected: **{selected_pack}** (remote_index={remote_index})\n\n{status}\n\nTest one command at a time. Confirm only after the physical FXAQ63PVE6 responds correctly.",
+        "data": {
+          "daikin_pack_id": "Daikin local package",
+          "daikin_command": "Single command to test",
+          "daikin_pack_action": "Action"
         }
       }
     },
+    "abort": {
+      "no_daikin_tuya_sets_available": "No imported Daikin local packs are installed. Return to Configure and choose Import Daikin packs from Tuya once."
+    },
     "error": {
-      "already_configured": "Another AeroState entry already uses this controller and model pack."
+      "already_configured": "Another AeroState entry already uses this controller and model pack.",
+      "tuya_cloud_endpoint_invalid": "Tuya OpenAPI endpoint must start with http:// or https://.",
+      "daikin_import_fields_missing": "Tuya Access ID, Access Secret, and IR blaster device ID are required.",
+      "daikin_import_failed": "Daikin code-set import failed. Verify the Tuya project region, API permissions, credentials, and IR blaster device ID.",
+      "daikin_command_not_available": "The selected command is not available in this Daikin pack.",
+      "daikin_pack_not_tested": "Test a command from this exact Daikin pack before confirming it.",
+      "daikin_pack_test_cooldown": "Wait two seconds before testing another command.",
+      "daikin_pack_test_failed": "The Daikin command test failed. Check the Tuya remote entity and Home Assistant logs."
     }
   },
   "issues": {

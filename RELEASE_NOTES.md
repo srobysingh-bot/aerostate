@@ -1,5 +1,21 @@
 # Release Notes
 
+## AeroState v1.1.5
+
+This patch exposes the Daikin BRC4M150W package workflow in the existing integration UI.
+
+### Added
+
+- Configure UI actions to import, test, and explicitly select installed Daikin local packs.
+- Pack and command dropdowns that send only one manual test command at a time.
+- Confirmation that stores the tested pack as `selected_tuya_pack_id` for local runtime use.
+
+### Safety
+
+- The old BRC4C158 pack is visibly labeled as reference-only, not BRC4M150W.
+- Tuya Cloud credentials are used only by the one-time importer and are not saved.
+- A Daikin pack cannot be selected for runtime until that exact pack has been tested.
+
 ## AeroState v1.1.4
 
 This patch adds the Daikin BRC4M150W / FXAQ63PVE6 local Tuya workflow.
